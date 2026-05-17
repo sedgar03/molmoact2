@@ -1,0 +1,16 @@
+Fetching 24 files:   0%|          | 0/24 [00:00<?, ?it/s]Fetching 24 files: 100%|██████████| 24/24 [00:00<00:00, 219788.86it/s]
+2026-05-11 17:26:28,508 [INFO] Resolved snapshot dir: /home/exx/.cache/huggingface/hub/models--allenai--MolmoAct2-DROID/snapshots/42752a59e5bd529a6ba66e99a81c5de25c505e18
+2026-05-11 17:26:28,509 [WARNING] patch patched_bf16_dtype: needle not found in /home/exx/.cache/huggingface/modules/transformers_modules/_036a703c86f6d14a444fd012232650be3657a4b6/modeling_molmoact2.py
+2026-05-11 17:26:28,509 [INFO] Loading processor
+Using a slow image processor as `use_fast` is unset and a slow processor was saved with this model. `use_fast=True` will be the default behavior in v4.52, even if the model was saved with a slow processor. This will result in minor differences in outputs. You'll still be able to use a slow processor with `use_fast=False`.
+2026-05-11 17:26:29,412 [INFO] Loading model (dtype=torch.bfloat16, device=cuda:0)
+`torch_dtype` is deprecated! Use `dtype` instead!
+Loading checkpoint shards:   0%|          | 0/5 [00:00<?, ?it/s]Loading checkpoint shards:  20%|██        | 1/5 [00:01<00:04,  1.21s/it]Loading checkpoint shards:  40%|████      | 2/5 [00:02<00:03,  1.28s/it]Loading checkpoint shards:  60%|██████    | 3/5 [00:03<00:02,  1.10s/it]Loading checkpoint shards:  80%|████████  | 4/5 [00:03<00:00,  1.17it/s]Loading checkpoint shards: 100%|██████████| 5/5 [00:04<00:00,  1.48it/s]Loading checkpoint shards: 100%|██████████| 5/5 [00:04<00:00,  1.17it/s]
+2026-05-11 17:26:36,291 [INFO] Warming up model with a dummy frame (cuda_graph=False) ...
+2026-05-11 17:26:37,028 [INFO] Warmup OK (736.8 ms)
+2026-05-11 17:26:37,052 [INFO] Listening on 0.0.0.0:8000
+INFO:     Started server process [456769]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:41470 - "GET /act HTTP/1.1" 200 OK

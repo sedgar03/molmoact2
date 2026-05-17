@@ -1,0 +1,91 @@
+Fetching 25 files:   0%|          | 0/25 [00:00<?, ?it/s]Fetching 25 files: 100%|██████████| 25/25 [00:00<00:00, 248477.73it/s]
+2026-05-16 21:57:48,053 [INFO] Resolved snapshot dir: /home/exx/.cache/huggingface/hub/models--allenai--MolmoAct2-BimanualYAM/snapshots/28e56c0fa4cb8598bfc2261e45499b3cc77763d4
+2026-05-16 21:57:48,054 [WARNING] patch patched_bf16_dtype: needle not found in /home/exx/.cache/huggingface/hub/models--allenai--MolmoAct2-BimanualYAM/snapshots/28e56c0fa4cb8598bfc2261e45499b3cc77763d4/modeling_molmoact2.py
+2026-05-16 21:57:48,054 [WARNING] patch patched_bf16_to_array: needle not found in /home/exx/.cache/huggingface/hub/models--allenai--MolmoAct2-BimanualYAM/snapshots/28e56c0fa4cb8598bfc2261e45499b3cc77763d4/modeling_molmoact2.py
+2026-05-16 21:57:48,054 [WARNING] patch patched_bf16_dtype: needle not found in /home/exx/.cache/huggingface/modules/transformers_modules/_036a703c86f6d14a444fd012232650be3657a4b6/modeling_molmoact2.py
+2026-05-16 21:57:48,055 [WARNING] patch patched_bf16_dtype: needle not found in /home/exx/.cache/huggingface/modules/transformers_modules/_28e56c0fa4cb8598bfc2261e45499b3cc77763d4/modeling_molmoact2.py
+2026-05-16 21:57:48,055 [WARNING] patch patched_bf16_to_array: needle not found in /home/exx/.cache/huggingface/modules/transformers_modules/_28e56c0fa4cb8598bfc2261e45499b3cc77763d4/modeling_molmoact2.py
+2026-05-16 21:57:48,055 [INFO] Loading processor
+Using a slow image processor as `use_fast` is unset and a slow processor was saved with this model. `use_fast=True` will be the default behavior in v4.52, even if the model was saved with a slow processor. This will result in minor differences in outputs. You'll still be able to use a slow processor with `use_fast=False`.
+2026-05-16 21:57:49,018 [INFO] Loading model (dtype=torch.bfloat16, device=cuda:0)
+`torch_dtype` is deprecated! Use `dtype` instead!
+Loading checkpoint shards:   0%|          | 0/5 [00:00<?, ?it/s]Loading checkpoint shards:  20%|██        | 1/5 [00:00<00:02,  1.97it/s]Loading checkpoint shards:  40%|████      | 2/5 [00:01<00:01,  2.00it/s]Loading checkpoint shards:  60%|██████    | 3/5 [00:01<00:01,  1.99it/s]Loading checkpoint shards:  80%|████████  | 4/5 [00:01<00:00,  2.12it/s]Loading checkpoint shards: 100%|██████████| 5/5 [00:02<00:00,  2.53it/s]Loading checkpoint shards: 100%|██████████| 5/5 [00:02<00:00,  2.28it/s]
+2026-05-16 21:57:55,574 [INFO] Warming up model with dummy frames (cuda_graph=False) ...
+2026-05-16 21:57:56,742 [INFO] Warmup OK (1168.0 ms)
+2026-05-16 21:57:56,756 [INFO] Listening on 0.0.0.0:8202
+INFO:     Started server process [1753129]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8202 (Press CTRL+C to quit)
+INFO:     127.0.0.1:33466 - "GET /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:53314 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:43046 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:43050 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:43058 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:43858 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:43870 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:43878 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:43886 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:43896 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:50896 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:50908 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:50920 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:50936 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:50944 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:49892 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:49900 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:55156 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:51502 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:51504 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:51520 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:41468 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:41482 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:41490 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:46016 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:46030 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:46044 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:46054 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:46330 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:46340 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:46356 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:47658 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:47668 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:47680 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:36894 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:36898 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:36902 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:46648 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:46652 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:46658 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:44854 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:44870 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:44882 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:36194 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:36210 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:36226 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:59322 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:59336 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:59348 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:37088 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:37096 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:37110 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:37116 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:38302 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:38310 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:38316 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:51370 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:38642 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:38646 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:55366 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:55372 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:55386 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:55388 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:57686 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:57692 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:57696 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:34658 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:34668 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:34672 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:50382 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:50384 - "POST /act HTTP/1.1" 200 OK
+INFO:     158.130.51.224:52110 - "POST /act HTTP/1.1" 200 OK
