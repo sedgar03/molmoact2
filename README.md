@@ -100,7 +100,7 @@ For training, evaluation, and deployment instructions, see the MolmoAct2 LeRobot
 ## 4. Real-world Deployment
 
 > [!WARNING]
-> **Disclaimer:** Out-of-the-box deployment is intended for simple tasks within the training task distribution (e.g., Pick-and-Place, opening, and closing). Performance has only been empirically verified on the **SO-100** and **Franka DROID** embodiments. Results on other embodiments and tasks are not guaranteed.
+> **Disclaimer:** Out-of-the-box deployment is intended for simple tasks within the training task distribution (e.g., Pick-and-Place, opening, closing and etc). Performance has only been empirically verified on the **SO-100** and **Franka DROID** embodiments. Results on other embodiments and tasks are not guaranteed.
 
 MolmoAct2 supports out-of-the-box deployment on three robot embodiments:
 
