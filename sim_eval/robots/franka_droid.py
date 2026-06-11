@@ -51,10 +51,10 @@ class FrankaDROID(BaseAgent):
     arm_damping     = 1e2
     arm_force_limit = 100
 
-    gripper_stiffness   = 1e3
-    gripper_damping     = 1e2
-    gripper_force_limit = 100
-    gripper_friction    = 1
+    gripper_stiffness   = 1e5
+    gripper_damping     = 1e3
+    gripper_force_limit = 0.1
+    gripper_friction    = 0.05
 
     @property
     def _sensor_configs(self):

@@ -64,7 +64,7 @@ class BimanualYAM(BaseAgent):
     arm_force_limit = [28.,  28.,  28.,  10.,  10.,  10.]
 
     # kp high enough to saturate force_limit on contact → force_limit sets grip force.
-    gripper_stiffness   = 2000.
+    gripper_stiffness   = 2e3
     gripper_damping     = 40.
     gripper_force_limit = 40.
 
