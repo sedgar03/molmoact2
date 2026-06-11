@@ -38,7 +38,7 @@ MOLMOACT2_SCHEMAS: dict[str, RemoteServerSchema] = {
 StateAdapter  = Callable[[np.ndarray], np.ndarray]
 ActionAdapter = Callable[[np.ndarray], np.ndarray]
 
-_YAM_FINGER_OPEN_RANGE = 0.0485
+_YAM_FINGER_OPEN_RANGE = 0.0475  # matches bimanual_yam.py gripper lower=-0.0475
 
 
 def droid_state_adapter(qpos: np.ndarray) -> np.ndarray:
@@ -79,14 +79,14 @@ def yam_action_adapter(action: np.ndarray) -> np.ndarray:
     """YAM server action (14-D) → ManiSkill pd_joint_pos action (14-D).
 
     Arm joints pass through as absolute angles. Gripper indices 6 and 13
-    are binarized: server [0,1] (1=open) → ManiSkill [-1,1] (-1=open, +1=closed).
+    are linearly mapped: server [0,1] (1=open) → ManiSkill [-1,1] (-1=open, +1=closed).
     """
     action = np.asarray(action, dtype=np.float32)
     if action.shape[-1] != 14:
         raise ValueError(f"yam_action_adapter: expected (14,), got {action.shape}")
     out = action.copy()
     for i in (6, 13):
-        out[i] = -1.0 if float(action[i]) >= 0.5 else 1.0
+        out[i] = 1.0 - 2.0 * float(action[i])
     return out
 
 

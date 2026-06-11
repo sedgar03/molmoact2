@@ -4,16 +4,12 @@ MolmoAct2 closed-loop evaluation on ManiSkill environments.
 
 Usage:
 
-    python -m sim_eval.run_eval \\
-        --policy-type remote-yam \\
-        --remote-url http://<host>:8202/act \\
-        -e BimanualYAMPutEverythingInBox-v1
+    python -m sim_eval.run_eval --policy-type remote-yam --remote-url http://<host>:8202/act -e BimanualYAMPutEverythingInBox-v1
+
+    python -m sim_eval.run_eval --policy-type remote-droid --remote-url http://<host>:8000/act -e DroidPutEverythingInBox-v1
 
     # Multiple tasks:
-    python -m sim_eval.run_eval \\
-        --policy-type remote-yam \\
-        --remote-url http://<host>:8202/act \\
-        -e BimanualYAMPutEverythingInBox-v1 DroidPutEverythingInBox-v1
+    python -m sim_eval.run_eval --policy-type remote-yam --remote-url http://<host>:8202/act -e BimanualYAMPutEverythingInBox-v1 DroidPutEverythingInBox-v1
 """
 
 import dataclasses
