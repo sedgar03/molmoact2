@@ -107,6 +107,14 @@ class EvalRolloutSaver:
             "state": np.asarray(obs_pre["joint_positions"], dtype=np.float32).copy(),
             "next_state": np.asarray(obs_post["joint_positions"], dtype=np.float32).copy(),
         }
+        if "joint_efforts" in obs_pre:
+            record["joint_efforts"] = np.asarray(
+                obs_pre["joint_efforts"], dtype=np.float32
+            ).copy()
+        if "joint_efforts" in obs_post:
+            record["next_joint_efforts"] = np.asarray(
+                obs_post["joint_efforts"], dtype=np.float32
+            ).copy()
         for obs_key, cam_key in self.CAMERA_OBS_TO_KEY.items():
             img = obs_pre.get(obs_key)
             if img is not None:
@@ -151,6 +159,23 @@ class EvalRolloutSaver:
             f.create_dataset(
                 "next_state", data=next_states, compression="gzip", compression_opts=4
             )
+            if "joint_efforts" in self._buffer[0]:
+                efforts = np.stack(
+                    [rec["joint_efforts"] for rec in self._buffer]
+                ).astype(np.float32)
+                f.create_dataset(
+                    "joint_efforts", data=efforts, compression="gzip", compression_opts=4
+                )
+            if "next_joint_efforts" in self._buffer[0]:
+                next_efforts = np.stack(
+                    [rec["next_joint_efforts"] for rec in self._buffer]
+                ).astype(np.float32)
+                f.create_dataset(
+                    "next_joint_efforts",
+                    data=next_efforts,
+                    compression="gzip",
+                    compression_opts=4,
+                )
 
         logger.info(
             "Saved rollout: %s (%d steps, cameras=%s)",

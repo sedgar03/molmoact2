@@ -1,0 +1,156 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Dict, Optional
+
+import numpy as np
+
+
+class ForceSafetyError(RuntimeError):
+    """Raised when the force safety monitor aborts a robot command."""
+
+
+@dataclass
+class ForceSafetyDecision:
+    command: np.ndarray
+    abort: bool
+    reason: Optional[str] = None
+
+
+def _as_limit_array(value: Any, n: int, name: str) -> Optional[np.ndarray]:
+    if value is None:
+        return None
+    arr = np.asarray(value, dtype=float)
+    if arr.ndim == 0:
+        return np.full(n, float(arr), dtype=float)
+    if arr.shape != (n,):
+        raise ValueError(f"{name} must be a scalar or length {n}, got shape {arr.shape}")
+    return arr
+
+
+class ForceSafetyMonitor:
+    """Small deterministic guard for YAM commands.
+
+    This is intentionally a raw-effort and command-limit guard. The next step is
+    replacing raw effort thresholds with residual thresholds once free-space
+    effort logs exist.
+    """
+
+    def __init__(self, cfg: Optional[Dict[str, Any]], num_dofs: int):
+        cfg = cfg or {}
+        self.enabled = bool(cfg.get("enabled", False))
+        self.num_dofs = int(num_dofs)
+        self.filter_alpha = float(cfg.get("filter_alpha", 0.35))
+        if not 0.0 < self.filter_alpha <= 1.0:
+            raise ValueError("force_safety.filter_alpha must be in (0, 1]")
+        self.min_trigger_ticks = max(1, int(cfg.get("min_trigger_ticks", 2)))
+
+        self.warning_abs_effort = _as_limit_array(
+            cfg.get("warning_abs_effort"), self.num_dofs, "warning_abs_effort"
+        )
+        self.hard_abs_effort = _as_limit_array(
+            cfg.get("hard_abs_effort"), self.num_dofs, "hard_abs_effort"
+        )
+        self.max_command_delta = _as_limit_array(
+            cfg.get("max_command_delta"), self.num_dofs, "max_command_delta"
+        )
+        self.hard_effort_norm = cfg.get("hard_effort_norm")
+        self.hard_effort_norm = (
+            float(self.hard_effort_norm) if self.hard_effort_norm is not None else None
+        )
+
+        gripper_indices = cfg.get("gripper_indices")
+        if gripper_indices is None and self.num_dofs % 7 == 0:
+            gripper_indices = list(range(6, self.num_dofs, 7))
+        self.gripper_indices = np.asarray(gripper_indices or [], dtype=int)
+        max_gripper_delta = cfg.get("max_gripper_delta")
+        if max_gripper_delta is not None and self.max_command_delta is not None:
+            for idx in self.gripper_indices:
+                if idx < 0 or idx >= self.num_dofs:
+                    raise ValueError(f"Invalid gripper index {idx} for {self.num_dofs} DOFs")
+                self.max_command_delta[idx] = float(max_gripper_delta)
+
+        self._filtered_effort: Optional[np.ndarray] = None
+        self._hard_ticks = 0
+        self._warn_ticks = 0
+        self._last_reason: Optional[str] = None
+
+    def check(self, target: np.ndarray, obs: Dict[str, Any]) -> ForceSafetyDecision:
+        target = np.asarray(target, dtype=float).copy()
+        if target.shape != (self.num_dofs,):
+            raise ValueError(f"Command shape {target.shape} != ({self.num_dofs},)")
+        if not self.enabled:
+            return ForceSafetyDecision(command=target, abort=False)
+
+        current = np.asarray(obs["joint_positions"], dtype=float).reshape(-1)
+        if current.shape != (self.num_dofs,):
+            raise ValueError(f"Current joint shape {current.shape} != ({self.num_dofs},)")
+
+        command = self._clip_command_delta(target, current)
+        effort = self._read_effort(obs)
+        if effort is None:
+            return ForceSafetyDecision(command=command, abort=False)
+
+        hard_reasons = []
+        warn_reasons = []
+        abs_effort = np.abs(effort)
+        if self.hard_abs_effort is not None:
+            mask = abs_effort > self.hard_abs_effort
+            if np.any(mask):
+                hard_reasons.append(self._format_joint_reason("hard effort", abs_effort, mask))
+        if self.warning_abs_effort is not None:
+            mask = abs_effort > self.warning_abs_effort
+            if np.any(mask):
+                warn_reasons.append(self._format_joint_reason("warning effort", abs_effort, mask))
+        if self.hard_effort_norm is not None:
+            effort_norm = float(np.linalg.norm(effort))
+            if effort_norm > self.hard_effort_norm:
+                hard_reasons.append(
+                    f"hard effort norm {effort_norm:.3f} > {self.hard_effort_norm:.3f}"
+                )
+
+        if hard_reasons:
+            self._hard_ticks += 1
+        else:
+            self._hard_ticks = 0
+        if warn_reasons:
+            self._warn_ticks += 1
+        else:
+            self._warn_ticks = 0
+
+        if self._hard_ticks >= self.min_trigger_ticks:
+            reason = "; ".join(hard_reasons)
+            return ForceSafetyDecision(command=current, abort=True, reason=reason)
+        if self._warn_ticks >= self.min_trigger_ticks:
+            reason = "; ".join(warn_reasons)
+            return ForceSafetyDecision(command=current, abort=False, reason=reason)
+        return ForceSafetyDecision(command=command, abort=False)
+
+    def _clip_command_delta(self, target: np.ndarray, current: np.ndarray) -> np.ndarray:
+        if self.max_command_delta is None:
+            return target
+        delta = np.clip(target - current, -self.max_command_delta, self.max_command_delta)
+        return current + delta
+
+    def _read_effort(self, obs: Dict[str, Any]) -> Optional[np.ndarray]:
+        raw = obs.get("joint_efforts")
+        if raw is None:
+            raw = obs.get("joint_eff")
+        if raw is None:
+            if self.warning_abs_effort is not None or self.hard_abs_effort is not None:
+                raise ForceSafetyError("force_safety effort thresholds enabled but obs has no effort")
+            return None
+
+        effort = np.asarray(raw, dtype=float).reshape(-1)
+        if effort.shape != (self.num_dofs,):
+            raise ValueError(f"Effort shape {effort.shape} != ({self.num_dofs},)")
+        if self._filtered_effort is None:
+            self._filtered_effort = effort.copy()
+        else:
+            a = self.filter_alpha
+            self._filtered_effort = a * effort + (1.0 - a) * self._filtered_effort
+        return self._filtered_effort
+
+    def _format_joint_reason(self, label: str, values: np.ndarray, mask: np.ndarray) -> str:
+        parts = [f"j{i}={values[i]:.3f}" for i in np.flatnonzero(mask)]
+        return f"{label}: " + ", ".join(parts)

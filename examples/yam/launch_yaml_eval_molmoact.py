@@ -33,6 +33,7 @@ from omegaconf import OmegaConf
 from camera_client import CameraClient
 from gello_min.realsense_camera import RealSenseCamera, get_device_ids
 from gello_min.env import RobotEnv
+from gello_min.force_safety import ForceSafetyError
 from eval_utils import (
     EvalRolloutSaver,
     LiveCameraView,
@@ -175,6 +176,7 @@ def _build_env(
         control_rate_hz=left_cfg.get("hz", 30),
         camera_dict=camera_dict,
         camera_client=camera_client,
+        force_safety=left_cfg.get("force_safety"),
     )
     return env, left_cfg, right_cfg, bimanual
 
@@ -347,7 +349,7 @@ def run_session(
             saver = None
             outcome = None
     except KeyboardInterrupt:
-        print("\n[interrupt] Ctrl-C received — saving incomplete rollout, then converting...")
+        print("\n[interrupt] Ctrl-C received - saving incomplete rollout, then converting...")
         if saver is not None:
             try:
                 saver.flush()
@@ -358,6 +360,20 @@ def run_session(
                 print(f"  -> incomplete rollout saved: {saver.rollout_dir}")
             except Exception as exc:  # noqa: BLE001 — best-effort cleanup
                 logger.exception("Failed to flush incomplete rollout: %s", exc)
+    except ForceSafetyError as exc:
+        global _cleanup_done
+        _cleanup_done = True
+        print(f"\n[force_safety] Rollout aborted: {exc}")
+        if saver is not None:
+            try:
+                saver.flush()
+                saver.write_err(
+                    reason=f"ForceSafetyError: {exc}",
+                    step=outcome.last_step if outcome else saver.num_steps,
+                )
+                print(f"  -> incomplete rollout saved: {saver.rollout_dir}")
+            except Exception as flush_exc:  # noqa: BLE001 - best-effort cleanup
+                logger.exception("Failed to flush force-safety abort: %s", flush_exc)
     finally:
         live_view.close()
         _convert_if_any(labeled_rollouts, base_save_dir, session_timestamp, left_cfg)

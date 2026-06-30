@@ -136,9 +136,28 @@ camera per frame under `left_rgb/`, `front_rgb/`, `right_rgb/`.
 | `eval.local.*` | Checkpoint / device / dtype for `mode: local`. |
 | `eval.camera_server.enabled` | `true` uses the ZMQ camera server; `false` opens cameras in-process. |
 | `eval.live_view_enabled` | `false` disables the cv2 window (headless runs). |
+| `force_safety.*` | Command clipping and optional raw-effort hold/abort thresholds. |
 | `max_steps` | Per-rollout timeout in control steps. |
 | `storage.*` | Output location, instruction, PNG save settings. |
 | `lerobot.*` | End-of-session dataset conversion knobs. |
+
+## Force safety guard
+
+The eval launcher wires `force_safety` from `configs/yam_left.yaml` into
+`RobotEnv.step_command_only()`, so policy actions, reset moves, and interpolated
+sub-steps all pass through the same command path.
+
+Current defaults:
+
+- YAM arms are created with `zero_gravity_mode: false` for inference.
+- Gripper force is capped through i2rt's `limit_gripper_force` argument.
+- Per-tick command deltas are clipped before reaching the robot.
+- Raw effort thresholds are present but left unset until free-space effort logs
+  are collected for the active arms, grippers, payload, and speed.
+
+Rollout HDF5 files include `joint_efforts` and `next_joint_efforts` when the
+robot exposes them. Use those logs to tune first raw thresholds before enabling
+hard effort aborts.
 
 ## Camera server, standalone
 

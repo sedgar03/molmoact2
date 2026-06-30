@@ -6,6 +6,8 @@
 robot:
   _target_: gello_min.yam.YAMRobot
   channel: can_right
+  zero_gravity_mode: false
+  limit_gripper_force: 20.0
 
 agent:
   start_joints: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]

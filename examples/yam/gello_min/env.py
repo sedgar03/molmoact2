@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional
 import numpy as np
 
 from gello_min.camera import CameraDriver
+from gello_min.force_safety import ForceSafetyError, ForceSafetyMonitor
 from gello_min.robot import Robot
 
 
@@ -25,6 +26,7 @@ class RobotEnv:
         control_rate_hz: float = 100.0,
         camera_dict: Optional[Dict[str, CameraDriver]] = None,
         camera_client: Optional[Any] = None,
+        force_safety: Optional[Dict[str, Any]] = None,
     ) -> None:
         self._robot = robot
         self._rate = Rate(control_rate_hz)
@@ -34,10 +36,11 @@ class RobotEnv:
         # then ignored. See gello/cameras/camera_client.py.
         self._camera_client = camera_client
 
-    # dynamic offset is used in data collection to make sure the same
-    # starting position between each episode.
+        # dynamic offset is used in data collection to make sure the same
+        # starting position between each episode.
         self._dynamic_offset = np.zeros(self._robot.num_dofs())
         self._original_offset = np.zeros(self._robot.num_dofs())
+        self._force_safety = ForceSafetyMonitor(force_safety, self._robot.num_dofs())
 
     def set_original_offset(self, gello_joints: np.ndarray) -> None:
         self._original_offset = gello_joints - self._robot.get_joint_state()
@@ -82,10 +85,14 @@ class RobotEnv:
         ), f"input:{len(joints)}, robot:{self._robot.num_dofs()}"
         assert self._robot.num_dofs() == len(joints)
 
-        if reset:
-            self._robot.command_joint_state(joints)
-        else:
-            self._robot.command_joint_state(joints - self._dynamic_offset)
+        command = joints if reset else joints - self._dynamic_offset
+        robot_obs = self.get_robot_state()
+        decision = self._force_safety.check(command, robot_obs)
+        if decision.reason is not None:
+            print(f"[force_safety] {decision.reason}")
+        self._robot.command_joint_state(decision.command)
+        if decision.abort:
+            raise ForceSafetyError(decision.reason or "force safety abort")
         self._rate.sleep()
 
     def get_robot_state(self) -> Dict[str, Any]:
@@ -98,12 +105,23 @@ class RobotEnv:
         assert "joint_positions" in robot_obs
         assert "joint_velocities" in robot_obs
         assert "ee_pos_quat" in robot_obs
-        return {
+        result = {
             "joint_positions": robot_obs["joint_positions"],
             "joint_velocities": robot_obs["joint_velocities"],
             "ee_pos_quat": robot_obs["ee_pos_quat"],
             "gripper_position": robot_obs["gripper_position"],
         }
+        for key in (
+            "joint_efforts",
+            "joint_eff",
+            "gripper_velocity",
+            "gripper_effort",
+            "gripper_eff",
+            "robot_config",
+        ):
+            if key in robot_obs:
+                result[key] = robot_obs[key]
+        return result
 
     def get_obs(self) -> Dict[str, Any]:
         """Get observation from the environment.

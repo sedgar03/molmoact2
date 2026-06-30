@@ -108,6 +108,9 @@ class BimanualRobot(Robot):
         assert l_obs.keys() == r_obs.keys()
         return_obs = {}
         for k in l_obs.keys():
+            if isinstance(l_obs[k], dict) and isinstance(r_obs[k], dict):
+                return_obs[k] = {"left": l_obs[k], "right": r_obs[k]}
+                continue
             try:
                 return_obs[k] = np.concatenate((l_obs[k], r_obs[k]))
             except Exception as e:
