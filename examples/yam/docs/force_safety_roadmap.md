@@ -142,13 +142,24 @@ Acceptance criteria:
 
 ## Immediate Work Items
 
-1. Add `zero_gravity_mode=False` and lower `limit_gripper_force` plumbing to the YAM wrapper/config.
-2. Add `joint_eff`, `gripper_eff`, and robot config fields to YAM observations.
-3. Add a `ForceSafetyMonitor` with raw effort thresholds and command-delta limits.
-4. Add a free-space data collection script for threshold tuning.
-5. Record free-space logs and derive first thresholds.
-6. Upgrade the monitor from raw effort to residual effort.
-7. Train and evaluate NEXT-lite on free-space logs.
+1. Record free-space logs with `collect_force_baseline.py`.
+2. Derive first conservative raw effort warning/hard thresholds with `analyze_force_baseline.py`.
+3. Enable thresholds in `configs/yam_left.yaml` and validate freeze/abort behavior on a soft surrogate.
+4. Upgrade the monitor from raw effort to residual effort.
+5. Train and evaluate NEXT-lite on free-space logs.
+
+## Implementation Log
+
+2026-06-30:
+
+- Implemented first-pass guard in `sedgar03/molmoact2` commit `b2f591d`.
+- YAM eval configs now instantiate arms with `zero_gravity_mode: false` and `limit_gripper_force: 20.0`.
+- `YAMRobot` exposes `joint_efforts`, `joint_eff`, `gripper_effort`, and `gripper_eff` when i2rt provides them.
+- `RobotEnv.step_command_only()` now applies a configurable `ForceSafetyMonitor` to policy actions, reset moves, and interpolated sub-steps.
+- Command limiting is default-off in the YAM eval config. If enabled for unattended inference, it scales the whole joint-space command toward the target rather than independently clipping joints. Raw effort warning/hard thresholds are present but intentionally unset until free-space baseline logs are collected.
+- Rollout `episode.h5` files now record policy targets, requested commands, sent commands, command deltas, interpolation step counts, joint velocities, and joint efforts for replay/modeling.
+- Added `collect_force_baseline.py` to gather contact-free per-control-tick HDF5 logs without policy inference.
+- Added `analyze_force_baseline.py` to turn those logs into first-pass raw effort threshold recommendations.
 
 ## Open Questions
 

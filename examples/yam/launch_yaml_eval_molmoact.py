@@ -186,7 +186,10 @@ def _build_env(
 # ---------------------------------------------------------------------------
 
 
-def dynamic_smoothing(env: RobotEnv, target_joints: np.ndarray) -> Dict[str, Any]:
+def dynamic_smoothing(
+    env: RobotEnv,
+    target_joints: np.ndarray,
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """Apply ``target_joints`` via sub-tick linear interpolation. Returns final obs.
 
     The interpolation sub-steps issue command-only ticks (no camera reads). A
@@ -197,13 +200,25 @@ def dynamic_smoothing(env: RobotEnv, target_joints: np.ndarray) -> Dict[str, Any
     curr_joints = env.get_robot_state()["joint_positions"]
     max_delta = float(np.abs(curr_joints - target_joints).max())
     steps = min(int(max_delta / 0.01), 100)
+    command_results = []
     if steps <= 1:
-        env.step_command_only(target_joints)
+        command_results.append(env.step_command_only(target_joints))
     else:
         for jnt in np.linspace(curr_joints, target_joints, steps):
-            env.step_command_only(jnt)
+            command_results.append(env.step_command_only(jnt))
             time.sleep(0.001)
-    return env.get_obs()
+    final_command = command_results[-1].sent_command if command_results else target_joints
+    command_info = {
+        "requested_joint_positions": np.asarray(target_joints, dtype=np.float32).copy(),
+        "commanded_joint_positions": np.asarray(final_command, dtype=np.float32).copy(),
+        "command_delta": (
+            np.asarray(final_command, dtype=np.float32)
+            - np.asarray(curr_joints, dtype=np.float32)
+        ),
+        "smoothing_start_joint_positions": np.asarray(curr_joints, dtype=np.float32).copy(),
+        "interpolation_steps": len(command_results),
+    }
+    return env.get_obs(), command_info
 
 
 def run_one_rollout(
@@ -247,9 +262,14 @@ def run_one_rollout(
 
         action = np.asarray(action_chunk[step % chunk_size])
         obs_pre = env.get_obs()
-        obs_post = dynamic_smoothing(env, action) or obs_pre
+        obs_post, command_info = dynamic_smoothing(env, action)
 
-        saver.add_step(obs_pre=obs_pre, obs_post=obs_post)
+        saver.add_step(
+            obs_pre=obs_pre,
+            obs_post=obs_post,
+            policy_action=action,
+            command_info=command_info,
+        )
 
         key = live_view.update(
             obs=obs_pre,

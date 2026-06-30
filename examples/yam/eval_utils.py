@@ -94,6 +94,8 @@ class EvalRolloutSaver:
         self,
         obs_pre: Dict[str, Any],
         obs_post: Dict[str, Any],
+        policy_action: Optional[np.ndarray] = None,
+        command_info: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Buffer one control-step record.
 
@@ -107,6 +109,19 @@ class EvalRolloutSaver:
             "state": np.asarray(obs_pre["joint_positions"], dtype=np.float32).copy(),
             "next_state": np.asarray(obs_post["joint_positions"], dtype=np.float32).copy(),
         }
+        if policy_action is not None:
+            record["policy_action"] = np.asarray(policy_action, dtype=np.float32).copy()
+        if command_info is not None:
+            for key in (
+                "requested_joint_positions",
+                "commanded_joint_positions",
+                "command_delta",
+                "smoothing_start_joint_positions",
+            ):
+                if key in command_info and command_info[key] is not None:
+                    record[key] = np.asarray(command_info[key], dtype=np.float32).copy()
+            if "interpolation_steps" in command_info:
+                record["interpolation_steps"] = int(command_info["interpolation_steps"])
         if "joint_efforts" in obs_pre:
             record["joint_efforts"] = np.asarray(
                 obs_pre["joint_efforts"], dtype=np.float32
@@ -114,6 +129,14 @@ class EvalRolloutSaver:
         if "joint_efforts" in obs_post:
             record["next_joint_efforts"] = np.asarray(
                 obs_post["joint_efforts"], dtype=np.float32
+            ).copy()
+        if "joint_velocities" in obs_pre:
+            record["joint_velocities"] = np.asarray(
+                obs_pre["joint_velocities"], dtype=np.float32
+            ).copy()
+        if "joint_velocities" in obs_post:
+            record["next_joint_velocities"] = np.asarray(
+                obs_post["joint_velocities"], dtype=np.float32
             ).copy()
         for obs_key, cam_key in self.CAMERA_OBS_TO_KEY.items():
             img = obs_pre.get(obs_key)
@@ -159,6 +182,22 @@ class EvalRolloutSaver:
             f.create_dataset(
                 "next_state", data=next_states, compression="gzip", compression_opts=4
             )
+            for key in (
+                "policy_action",
+                "requested_joint_positions",
+                "commanded_joint_positions",
+                "command_delta",
+                "smoothing_start_joint_positions",
+            ):
+                if key in self._buffer[0]:
+                    values = np.stack([rec[key] for rec in self._buffer]).astype(np.float32)
+                    f.create_dataset(key, data=values, compression="gzip", compression_opts=4)
+            if "interpolation_steps" in self._buffer[0]:
+                steps = np.asarray(
+                    [rec["interpolation_steps"] for rec in self._buffer],
+                    dtype=np.int32,
+                )
+                f.create_dataset("interpolation_steps", data=steps)
             if "joint_efforts" in self._buffer[0]:
                 efforts = np.stack(
                     [rec["joint_efforts"] for rec in self._buffer]
@@ -173,6 +212,26 @@ class EvalRolloutSaver:
                 f.create_dataset(
                     "next_joint_efforts",
                     data=next_efforts,
+                    compression="gzip",
+                    compression_opts=4,
+                )
+            if "joint_velocities" in self._buffer[0]:
+                velocities = np.stack(
+                    [rec["joint_velocities"] for rec in self._buffer]
+                ).astype(np.float32)
+                f.create_dataset(
+                    "joint_velocities",
+                    data=velocities,
+                    compression="gzip",
+                    compression_opts=4,
+                )
+            if "next_joint_velocities" in self._buffer[0]:
+                next_velocities = np.stack(
+                    [rec["next_joint_velocities"] for rec in self._buffer]
+                ).astype(np.float32)
+                f.create_dataset(
+                    "next_joint_velocities",
+                    data=next_velocities,
                     compression="gzip",
                     compression_opts=4,
                 )

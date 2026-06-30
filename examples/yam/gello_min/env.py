@@ -1,4 +1,5 @@
 import time
+from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 import numpy as np
@@ -6,6 +7,18 @@ import numpy as np
 from gello_min.camera import CameraDriver
 from gello_min.force_safety import ForceSafetyError, ForceSafetyMonitor
 from gello_min.robot import Robot
+
+
+@dataclass
+class RobotCommandResult:
+    requested_command: np.ndarray
+    sent_command: np.ndarray
+    observed_joint_positions: np.ndarray
+    observed_joint_velocities: np.ndarray
+    observed_joint_efforts: Optional[np.ndarray]
+    timestamp: float
+    force_safety_reason: Optional[str] = None
+    force_safety_abort: bool = False
 
 
 class Rate:
@@ -73,7 +86,7 @@ class RobotEnv:
 
     def step_command_only(
         self, joints: np.ndarray, reset: Optional[bool] = False
-    ) -> None:
+    ) -> RobotCommandResult:
         """Command the robot + sleep on the control rate. Does NOT read cameras.
 
         Use this inside tight inner loops (e.g. interpolated sub-steps of an
@@ -91,9 +104,28 @@ class RobotEnv:
         if decision.reason is not None:
             print(f"[force_safety] {decision.reason}")
         self._robot.command_joint_state(decision.command)
+        result = RobotCommandResult(
+            requested_command=np.asarray(command, dtype=float).copy(),
+            sent_command=np.asarray(decision.command, dtype=float).copy(),
+            observed_joint_positions=np.asarray(
+                robot_obs["joint_positions"], dtype=float
+            ).copy(),
+            observed_joint_velocities=np.asarray(
+                robot_obs["joint_velocities"], dtype=float
+            ).copy(),
+            observed_joint_efforts=(
+                np.asarray(robot_obs["joint_efforts"], dtype=float).copy()
+                if "joint_efforts" in robot_obs
+                else None
+            ),
+            timestamp=time.time(),
+            force_safety_reason=decision.reason,
+            force_safety_abort=decision.abort,
+        )
         if decision.abort:
             raise ForceSafetyError(decision.reason or "force safety abort")
         self._rate.sleep()
+        return result
 
     def get_robot_state(self) -> Dict[str, Any]:
         """Robot-only observations (joint positions/velocities, EE pose, gripper).

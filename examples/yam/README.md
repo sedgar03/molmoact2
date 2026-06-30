@@ -124,8 +124,9 @@ failure/<YYYY-MM-DD>/<ts>/
 eval_lerobot_v30/<session_ts>/   # LeRobot v3.0 dataset (labeled rollouts, end of session)
 ```
 
-Each rollout has `episode.h5` (joint trajectory + instruction) and one PNG per
-camera per frame under `left_rgb/`, `front_rgb/`, `right_rgb/`.
+Each rollout has `episode.h5` (joint trajectory, command targets, effort
+telemetry, instruction) and one PNG per camera per frame under `left_rgb/`,
+`front_rgb/`, `right_rgb/`.
 
 ## Key config knobs (`configs/yam_left.yaml`)
 
@@ -160,9 +161,45 @@ Current defaults:
 - Raw effort thresholds are present but left unset until free-space effort logs
   are collected for the active arms, grippers, payload, and speed.
 
-Rollout HDF5 files include `joint_efforts` and `next_joint_efforts` when the
-robot exposes them. Use those logs to tune first raw thresholds before enabling
-hard effort aborts.
+Rollout HDF5 files include command/modeling fields when available:
+
+- `state`, `next_state`
+- `policy_action`
+- `requested_joint_positions`
+- `commanded_joint_positions`
+- `command_delta`
+- `joint_velocities`, `next_joint_velocities`
+- `joint_efforts`, `next_joint_efforts`
+- `interpolation_steps`
+
+Use those logs to tune first raw thresholds before enabling hard effort aborts.
+
+## Free-space force baseline
+
+Collect contact-free effort data without policy inference:
+
+```bash
+python examples/yam/collect_force_baseline.py \
+  --left_config_path examples/yam/configs/yam_left.yaml \
+  --right_config_path examples/yam/configs/yam_right.yaml \
+  --output_dir ./yam_force_baselines
+```
+
+The script moves small sinusoidal joint sweeps around the configured start pose
+and writes `free_space_baseline.h5` with per-control-tick `q`, `qdot`, effort,
+target, requested command, and sent command. Keep the workspace clear; this
+baseline is only valid if the run remains contact-free.
+
+After collection, generate a first conservative raw-effort threshold block:
+
+```bash
+python examples/yam/analyze_force_baseline.py \
+  ./yam_force_baselines/<run_ts>/free_space_baseline.h5 \
+  --output_path ./yam_force_baselines/<run_ts>/force_safety_thresholds.yaml
+```
+
+Treat the output as a starting point. Validate warning/freeze and hard-abort
+behavior on a soft surrogate before using the thresholds around glass.
 
 ## Camera server, standalone
 
