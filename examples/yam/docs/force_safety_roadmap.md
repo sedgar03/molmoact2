@@ -106,7 +106,8 @@ external_load = measured_joint_effort - expected_free_space_effort
 Start with free-space-only training data:
 
 - slow, medium, and inference-speed arm motions
-- all regions of the glass-handling envelope
+- reachable regions of the glass-handling envelope that clear the table,
+  camera pole, cables, and fixtures
 - gripper open/close cycles
 - expected payload/tool configurations
 - both arms independently and bimanual motion if used in production

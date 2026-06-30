@@ -181,14 +181,25 @@ Collect contact-free effort data without policy inference:
 ```bash
 python examples/yam/collect_force_baseline.py \
   --left_config_path examples/yam/configs/yam_left.yaml \
-  --right_config_path examples/yam/configs/yam_right.yaml \
-  --output_dir ./yam_force_baselines
+  --output_dir ./yam_force_baselines \
+  --skip_move_to_start \
+  --joints 0 \
+  --amplitude_rad 0.02 \
+  --dry_run
 ```
 
-The script moves small sinusoidal joint sweeps around the configured start pose
-and writes `free_space_baseline.h5` with per-control-tick `q`, `qdot`, effort,
-target, requested command, and sent command. Keep the workspace clear; this
-baseline is only valid if the run remains contact-free.
+The script runs autonomous scripted motion, not tele-op. It moves small
+sinusoidal joint sweeps around the current pose when `--skip_move_to_start` is
+set, or around the configured start pose otherwise. It writes
+`free_space_baseline.h5` with per-control-tick `q`, `qdot`, effort, target,
+requested command, and sent command.
+
+For a cluttered bench, use `--dry_run` first, start with one known-safe joint,
+and keep the amplitude small. Only run without `--dry_run` after verifying the
+planned swept volume clears the table, camera pole, cables, and fixtures. Use
+`--joint_amplitudes 0:0.02,1:0.015` to set per-joint amplitudes. The script
+refuses to move unless `--joints` is explicit; use `--joints all` only in a
+fully clear workspace.
 
 After collection, generate a first conservative raw-effort threshold block:
 

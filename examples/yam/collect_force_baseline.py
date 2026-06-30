@@ -8,8 +8,11 @@ Example:
 
     python examples/yam/collect_force_baseline.py \
         --left_config_path examples/yam/configs/yam_left.yaml \
-        --right_config_path examples/yam/configs/yam_right.yaml \
-        --output_dir ./yam_force_baselines
+        --output_dir ./yam_force_baselines \
+        --skip_move_to_start \
+        --joints 0 \
+        --amplitude_rad 0.02 \
+        --dry_run
 """
 
 from __future__ import annotations
@@ -42,16 +45,22 @@ class Args:
     output_dir: str = "./yam_force_baselines"
     """Directory where the timestamped baseline HDF5 run will be written."""
 
-    amplitude_rad: float = 0.12
+    joints: str = ""
+    """Comma-separated joint indices to sweep, e.g. '0,1,2'. Use 'all' only in a fully clear workspace."""
+
+    amplitude_rad: float = 0.04
     """Peak joint sweep amplitude around the current/start pose."""
 
-    gripper_amplitude: float = 0.04
+    joint_amplitudes: str = ""
+    """Optional per-joint amplitudes, e.g. '0:0.02,1:0.015'. Overrides --amplitude_rad for listed joints."""
+
+    gripper_amplitude: float = 0.02
     """Peak gripper sweep amplitude when --include_gripper is enabled."""
 
-    cycle_sec: float = 6.0
+    cycle_sec: float = 8.0
     """Seconds per sinusoidal cycle."""
 
-    cycles_per_joint: int = 2
+    cycles_per_joint: int = 1
     """Number of slow/medium cycles to run for each joint."""
 
     hold_sec: float = 1.0
@@ -62,6 +71,9 @@ class Args:
 
     skip_move_to_start: bool = False
     """Use current pose as center without first moving to config start_joints."""
+
+    dry_run: bool = False
+    """Print the planned sweeps and exit before commanding motion."""
 
     yes: bool = False
     """Start without an interactive confirmation prompt."""
@@ -98,23 +110,71 @@ def _build_env(args: Args) -> Tuple[RobotEnv, Dict[str, Any], Optional[Dict[str,
     return env, left_cfg, right_cfg, bimanual
 
 
-def _joint_indices(num_dofs: int, include_gripper: bool) -> List[int]:
-    if include_gripper:
-        return list(range(num_dofs))
+def _joint_indices(num_dofs: int, include_gripper: bool, spec: str) -> List[int]:
+    spec = spec.strip().lower()
+    if not spec:
+        raise SystemExit(
+            "Refusing to run without explicit --joints. "
+            "Start with a single known-safe joint, e.g. --joints 0."
+        )
+    if spec == "all":
+        candidates = list(range(num_dofs))
+    else:
+        try:
+            candidates = [int(part.strip()) for part in spec.split(",") if part.strip()]
+        except ValueError as exc:
+            raise SystemExit(f"Invalid --joints value: {spec}") from exc
+
+    if not candidates:
+        raise SystemExit("--joints did not contain any joint indices")
+
+    result = []
+    for idx in candidates:
+        if idx < 0 or idx >= num_dofs:
+            raise SystemExit(f"Joint index {idx} is outside 0..{num_dofs - 1}")
+        if not include_gripper and num_dofs % 7 == 0 and idx % 7 == 6:
+            raise SystemExit(
+                f"Joint {idx} is a gripper joint. Pass --include_gripper to sweep it."
+            )
+        result.append(idx)
+    return result
+
+
+def _joint_amplitudes(num_dofs: int, args: Args) -> np.ndarray:
+    amplitudes = np.full(num_dofs, float(args.amplitude_rad), dtype=float)
     if num_dofs % 7 == 0:
-        return [idx for idx in range(num_dofs) if idx % 7 != 6]
-    return list(range(num_dofs))
+        amplitudes[6::7] = float(args.gripper_amplitude)
+    if not args.joint_amplitudes.strip():
+        return amplitudes
+
+    for item in args.joint_amplitudes.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            idx_s, amp_s = item.split(":", 1)
+            idx = int(idx_s)
+            amp = float(amp_s)
+        except ValueError as exc:
+            raise SystemExit(
+                "--joint_amplitudes entries must look like '0:0.02,1:0.015'"
+            ) from exc
+        if idx < 0 or idx >= num_dofs:
+            raise SystemExit(f"Joint amplitude index {idx} is outside 0..{num_dofs - 1}")
+        if amp < 0.0:
+            raise SystemExit("Joint amplitudes must be non-negative")
+        amplitudes[idx] = amp
+    return amplitudes
 
 
 def _target_for_joint(
     center: np.ndarray,
     joint_idx: int,
     phase: float,
-    amplitude_rad: float,
-    gripper_amplitude: float,
+    amplitudes: np.ndarray,
 ) -> np.ndarray:
     target = center.copy()
-    amp = gripper_amplitude if joint_idx % 7 == 6 else amplitude_rad
+    amp = float(amplitudes[joint_idx])
     target[joint_idx] = center[joint_idx] + amp * np.sin(phase)
     return target
 
@@ -221,12 +281,19 @@ def _write_h5(
 
 def main() -> None:
     args = tyro.cli(Args)
+    if not args.joints.strip():
+        raise SystemExit(
+            "Refusing to run without explicit --joints. "
+            "Start with a single known-safe joint, e.g. --joints 0."
+        )
+
     env, left_cfg, right_cfg, bimanual = _build_env(args)
     hz = float(left_cfg.get("hz", 30))
     num_dofs = env.robot().num_dofs()
-    joint_indices = _joint_indices(num_dofs, args.include_gripper)
+    joint_indices = _joint_indices(num_dofs, args.include_gripper, args.joints)
+    amplitudes = _joint_amplitudes(num_dofs, args)
 
-    if not args.skip_move_to_start:
+    if not args.skip_move_to_start and not args.dry_run:
         move_to_start_position(env, bimanual, left_cfg, right_cfg)
 
     center = np.asarray(env.get_robot_state()["joint_positions"], dtype=float)
@@ -234,10 +301,19 @@ def main() -> None:
     print(f"  dofs: {num_dofs}")
     print(f"  joints swept: {joint_indices}")
     print(f"  center: {np.array2string(center, precision=4)}")
-    print(f"  amplitude_rad: {args.amplitude_rad}")
+    print(
+        "  amplitudes: "
+        + ", ".join(f"j{idx}={amplitudes[idx]:.4f}" for idx in joint_indices)
+    )
     print(f"  cycle_sec: {args.cycle_sec}")
     print(f"  cycles_per_joint: {args.cycles_per_joint}")
-    print("\nKeep the robot envelope clear. This run must remain contact-free.")
+    if not args.skip_move_to_start:
+        print("  pre-run move: configured start_joints")
+    print("\nThis is autonomous scripted motion, not tele-op.")
+    print("Keep the planned swept volumes clear. This run must remain contact-free.")
+    if args.dry_run:
+        print("\nDry run only; no robot commands were sent.")
+        return
     if not args.yes:
         input("Press Enter to begin, or Ctrl-C to cancel.")
 
@@ -256,8 +332,7 @@ def main() -> None:
                     center,
                     joint_idx,
                     phase,
-                    args.amplitude_rad,
-                    args.gripper_amplitude,
+                    amplitudes,
                 )
                 result = env.step_command_only(target)
                 obs_post = env.get_robot_state()
@@ -275,6 +350,8 @@ def main() -> None:
         "num_dofs": num_dofs,
         "amplitude_rad": float(args.amplitude_rad),
         "gripper_amplitude": float(args.gripper_amplitude),
+        "joints": args.joints,
+        "joint_amplitudes": args.joint_amplitudes,
         "cycle_sec": float(args.cycle_sec),
         "cycles_per_joint": int(args.cycles_per_joint),
         "include_gripper": bool(args.include_gripper),
