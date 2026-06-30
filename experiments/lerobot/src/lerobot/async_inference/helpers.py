@@ -161,10 +161,16 @@ def prepare_raw_observation(
 
     # Turns the image features to (C, H, W) with H, W matching the policy image features.
     # This reduces the resolution of the images
-    image_dict = {
-        key: resize_robot_observation_image(torch.tensor(lerobot_obs[key]), policy_image_features[key].shape)
-        for key in image_keys
-    }
+    image_dict = {}
+    for key in image_keys:
+        image = torch.tensor(lerobot_obs[key])
+        feature = policy_image_features.get(key)
+        if feature is None:
+            if image.ndim == 3:
+                image = image.permute(2, 0, 1)
+            image_dict[key] = image
+        else:
+            image_dict[key] = resize_robot_observation_image(image, feature.shape)
 
     if "task" in robot_obs:
         state_dict["task"] = robot_obs["task"]

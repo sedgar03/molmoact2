@@ -15,8 +15,10 @@
 # limitations under the License.
 
 import logging
+import os
 import time
 from functools import cached_property
+from pprint import pformat
 
 from lerobot.cameras.utils import make_cameras_from_configs
 from lerobot.motors import Motor, MotorCalibration, MotorNormMode
@@ -32,6 +34,61 @@ from ..utils import ensure_safe_goal_position
 from .config_so_follower import SOFollowerRobotConfig
 
 logger = logging.getLogger(__name__)
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_int(name: str, default: int) -> int:
+    value = os.environ.get(name)
+    if value is None or value.strip() == "":
+        return default
+    return int(value)
+
+
+def _ensure_synced_safe_goal_position(
+    goal_present_pos: dict[str, tuple[float, float]], max_relative_target: float | dict[str, float]
+) -> dict[str, float]:
+    """Scale a relative target vector instead of clipping each motor independently."""
+
+    if isinstance(max_relative_target, float):
+        diff_cap = dict.fromkeys(goal_present_pos, max_relative_target)
+    elif isinstance(max_relative_target, dict):
+        if set(goal_present_pos) != set(max_relative_target):
+            raise ValueError("max_relative_target keys must match those of goal_present_pos.")
+        diff_cap = max_relative_target
+    else:
+        raise TypeError(max_relative_target)
+
+    scale = 1.0
+    for key, (goal_pos, present_pos) in goal_present_pos.items():
+        diff = abs(goal_pos - present_pos)
+        max_diff = float(diff_cap[key])
+        if diff > max_diff:
+            scale = min(scale, max_diff / diff if diff else 1.0)
+
+    warnings_dict = {}
+    safe_goal_positions = {}
+    for key, (goal_pos, present_pos) in goal_present_pos.items():
+        safe_goal_pos = present_pos + (goal_pos - present_pos) * scale
+        safe_goal_positions[key] = safe_goal_pos
+        if abs(safe_goal_pos - goal_pos) > 1e-4:
+            warnings_dict[key] = {
+                "original goal_pos": goal_pos,
+                "safe goal_pos": safe_goal_pos,
+            }
+
+    if warnings_dict:
+        logging.warning(
+            "Relative goal position vector had to be scaled to be safe "
+            f"(scale={scale:.4f}).\n{pformat(warnings_dict, indent=4)}"
+        )
+
+    return safe_goal_positions
 
 
 class SOFollower(Robot):
@@ -157,10 +214,15 @@ class SOFollower(Robot):
             self.bus.configure_motors()
             for motor in self.bus.motors:
                 self.bus.write("Operating_Mode", motor, OperatingMode.POSITION.value)
-                # Set P_Coefficient to lower value to avoid shakiness (Default is 32)
-                self.bus.write("P_Coefficient", motor, 16)
-                # Set I_Coefficient and D_Coefficient to default value 0 and 32
-                self.bus.write("I_Coefficient", motor, 0)
+                # The LeRobot default lowered P from the servo default 32 to reduce shakiness.
+                # SO101 elbow negative motion may need the original value under load.
+                motor_env = f"ROBOT_LAB_SO101_{motor.upper()}_P_COEFFICIENT"
+                p_coefficient = _env_int(motor_env, _env_int("ROBOT_LAB_SO101_P_COEFFICIENT", 16))
+                self.bus.write("P_Coefficient", motor, p_coefficient)
+                # Set I_Coefficient and D_Coefficient to default value 0 and 32.
+                motor_i_env = f"ROBOT_LAB_SO101_{motor.upper()}_I_COEFFICIENT"
+                i_coefficient = _env_int(motor_i_env, _env_int("ROBOT_LAB_SO101_I_COEFFICIENT", 0))
+                self.bus.write("I_Coefficient", motor, i_coefficient)
                 self.bus.write("D_Coefficient", motor, 32)
 
                 if motor == "gripper":
@@ -209,12 +271,35 @@ class SOFollower(Robot):
 
         goal_pos = {key.removesuffix(".pos"): val for key, val in action.items() if key.endswith(".pos")}
 
+        if _env_flag("ROBOT_LAB_SO101_CLAMP_TO_CALIBRATION", True) and self.bus.calibration:
+            clamped_goal_pos = {}
+            clamped = {}
+            for motor, value in goal_pos.items():
+                if motor not in self.bus.calibration:
+                    clamped_goal_pos[motor] = value
+                    continue
+                motor_id = self.bus.motors[motor].id
+                cal = self.bus.calibration[motor]
+                normalized_min = self.bus._normalize({motor_id: cal.range_min})[motor_id]
+                normalized_max = self.bus._normalize({motor_id: cal.range_max})[motor_id]
+                low, high = sorted((normalized_min, normalized_max))
+                safe_value = min(high, max(low, value))
+                clamped_goal_pos[motor] = safe_value
+                if safe_value != value:
+                    clamped[motor] = {"original goal_pos": value, "calibrated safe goal_pos": safe_value}
+            if clamped:
+                logger.warning("Goal position had to be clamped to local calibration range.\n%s", clamped)
+            goal_pos = clamped_goal_pos
+
         # Cap goal position when too far away from present position.
         # /!\ Slower fps expected due to reading from the follower.
         if self.config.max_relative_target is not None:
             present_pos = self.bus.sync_read("Present_Position")
             goal_present_pos = {key: (g_pos, present_pos[key]) for key, g_pos in goal_pos.items()}
-            goal_pos = ensure_safe_goal_position(goal_present_pos, self.config.max_relative_target)
+            if _env_flag("ROBOT_LAB_SO101_SYNC_RELATIVE_CLAMP", True):
+                goal_pos = _ensure_synced_safe_goal_position(goal_present_pos, self.config.max_relative_target)
+            else:
+                goal_pos = ensure_safe_goal_position(goal_present_pos, self.config.max_relative_target)
 
         # Send goal position to the arm
         self.bus.sync_write("Goal_Position", goal_pos)

@@ -14,11 +14,36 @@ from olmo.extra_tokens import (
     build_discrete_state_string,
     build_robot_prompt_fields,
 )
-from olmo.models.molmo.data_formatter import DataFormatter
-
 DEFAULT_PROMPT_TEMPLATES = "uber_model_v2"
 DEFAULT_MESSAGE_FORMAT = "qwen3"
 DEFAULT_SYSTEM_PROMPT = "demo_or_style_v2"
+
+try:
+    from olmo.models.molmo.data_formatter import DataFormatter
+except ModuleNotFoundError:
+    @dataclasses.dataclass
+    class DataFormatter:
+        prompt_templates: str = DEFAULT_PROMPT_TEMPLATES
+        message_format: str = DEFAULT_MESSAGE_FORMAT
+        system_prompt: str = DEFAULT_SYSTEM_PROMPT
+        always_start_with_space: bool = False
+        add_setup_tokens: bool = False
+        add_control_tokens: bool = False
+
+        def __call__(self, example, **_kwargs):
+            messages = example.get("messages", {})
+            if isinstance(messages, dict):
+                question = str(
+                    messages.get("question")
+                    or messages.get("prompt")
+                    or messages.get("instruction")
+                    or ""
+                )
+                style = str(messages.get("style") or "")
+                text = f"{style}\n{question}" if style else question
+            else:
+                text = str(messages)
+            return [text], None
 
 
 def _to_numpy_state(normalized_states: Any) -> Optional[np.ndarray]:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from collections import defaultdict, deque
 from dataclasses import dataclass
@@ -15,6 +16,19 @@ from transformers import AutoModelForImageTextToText, AutoProcessor
 from lerobot.policies.molmoact2.configuration_molmoact2 import MolmoAct2Config
 
 log = logging.getLogger(__name__)
+
+
+def _resolve_torch_dtype(device: torch.device) -> torch.dtype:
+    requested = os.environ.get("MOLMOACT2_HF_TORCH_DTYPE", "auto").strip().lower()
+    if requested in {"float32", "fp32"}:
+        return torch.float32
+    if requested in {"float16", "fp16"}:
+        return torch.float16
+    if requested in {"bfloat16", "bf16"}:
+        return torch.bfloat16
+    if device.type == "cuda" and torch.cuda.is_available() and torch.cuda.is_bf16_supported():
+        return torch.bfloat16
+    return torch.float32
 
 
 def _to_numpy(value: Any) -> np.ndarray:
@@ -208,6 +222,7 @@ class MolmoAct2HFBackend:
         checkpoint_dir = Path(checkpoint_ref).expanduser()
         checkpoint_source = str(checkpoint_dir) if checkpoint_dir.exists() else checkpoint_ref
         device = torch.device(self.config.device or "cpu")
+        self.torch_dtype = _resolve_torch_dtype(device)
         self.processor = AutoProcessor.from_pretrained(
             checkpoint_source,
             trust_remote_code=True,
@@ -216,7 +231,7 @@ class MolmoAct2HFBackend:
         model = AutoModelForImageTextToText.from_pretrained(
             checkpoint_source,
             trust_remote_code=True,
-            dtype=torch.float32,
+            dtype=self.torch_dtype,
             low_cpu_mem_usage=True,
         )
         self.model = model.to(device)
@@ -356,21 +371,24 @@ class MolmoAct2HFBackend:
     ) -> Any:
         enable_depth_reasoning = self._resolve_depth_reasoning()
         depth_cache = self._depth_caches.get(batch_idx)
-        output = self.model.predict_action(
-            processor=self.processor,
-            images=self._extract_images(obs),
-            task=self._extract_task(obs),
-            state=self._extract_state(obs),
-            norm_tag=norm_tag,
-            inference_action_mode=self.inference_action_mode,
-            enable_depth_reasoning=enable_depth_reasoning,
-            depth_cache=depth_cache,
-            action_tokenizer=self.action_tokenizer,
-            num_steps=num_steps,
-            n_action_steps=n_action_steps,
-            generator=generator,
-            enable_cuda_graph=bool(getattr(self.config, "enable_inference_cuda_graph", True)),
-        )
+        device = torch.device(self.config.device or "cpu")
+        autocast_enabled = device.type == "cuda" and self.torch_dtype in {torch.float16, torch.bfloat16}
+        with torch.autocast(device_type=device.type, dtype=self.torch_dtype, enabled=autocast_enabled):
+            output = self.model.predict_action(
+                processor=self.processor,
+                images=self._extract_images(obs),
+                task=self._extract_task(obs),
+                state=self._extract_state(obs),
+                norm_tag=norm_tag,
+                inference_action_mode=self.inference_action_mode,
+                enable_depth_reasoning=enable_depth_reasoning,
+                depth_cache=depth_cache,
+                action_tokenizer=self.action_tokenizer,
+                num_steps=num_steps,
+                n_action_steps=n_action_steps,
+                generator=generator,
+                enable_cuda_graph=bool(getattr(self.config, "enable_inference_cuda_graph", True)),
+            )
         if output.depth_cache is not None:
             self._depth_caches[batch_idx] = output.depth_cache
         if output.depth_bins is not None:

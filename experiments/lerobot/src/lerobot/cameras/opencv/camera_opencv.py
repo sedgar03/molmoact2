@@ -235,6 +235,11 @@ class OpenCVCamera(Camera):
         actual_fps = self.videocapture.get(cv2.CAP_PROP_FPS)
         # Use math.isclose for robust float comparison
         if not success or not math.isclose(self.fps, actual_fps, rel_tol=1e-3):
+            if not isinstance(self.config.index_or_path, int) and math.isclose(
+                self.fps, actual_fps, rel_tol=0.05
+            ):
+                logger.warning(f"{self} reports fps={actual_fps} despite setter success={success}; continuing.")
+                return
             raise RuntimeError(f"{self} failed to set fps={self.fps} ({actual_fps=}).")
 
     def _validate_fourcc(self) -> None:
@@ -272,15 +277,26 @@ class OpenCVCamera(Camera):
 
         actual_width = int(round(self.videocapture.get(cv2.CAP_PROP_FRAME_WIDTH)))
         if not width_success or self.capture_width != actual_width:
-            raise RuntimeError(
-                f"{self} failed to set capture_width={self.capture_width} ({actual_width=}, {width_success=})."
-            )
+            if not isinstance(self.config.index_or_path, int) and self.capture_width == actual_width:
+                logger.warning(
+                    f"{self} reports capture_width={actual_width} despite setter success={width_success}; continuing."
+                )
+            else:
+                raise RuntimeError(
+                    f"{self} failed to set capture_width={self.capture_width} ({actual_width=}, {width_success=})."
+                )
 
         actual_height = int(round(self.videocapture.get(cv2.CAP_PROP_FRAME_HEIGHT)))
         if not height_success or self.capture_height != actual_height:
-            raise RuntimeError(
-                f"{self} failed to set capture_height={self.capture_height} ({actual_height=}, {height_success=})."
-            )
+            if not isinstance(self.config.index_or_path, int) and self.capture_height == actual_height:
+                logger.warning(
+                    f"{self} reports capture_height={actual_height} despite setter success={height_success}; continuing."
+                )
+            else:
+                raise RuntimeError(
+                    f"{self} failed to set capture_height={self.capture_height} ({actual_height=}, {height_success=})."
+                )
+            return
 
     @staticmethod
     def find_cameras() -> list[dict[str, Any]]:

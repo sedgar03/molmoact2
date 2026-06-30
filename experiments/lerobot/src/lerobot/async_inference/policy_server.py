@@ -78,6 +78,10 @@ class PolicyServer(services_pb2_grpc.AsyncInferenceServicer):
 
         self._predicted_timesteps_lock = threading.Lock()
         self._predicted_timesteps = set()
+        self.policy = None
+        self.preprocessor = None
+        self.postprocessor = None
+        self._policy_cache_key = None
 
         self.last_processed_obs = None
 
@@ -148,6 +152,31 @@ class PolicyServer(services_pb2_grpc.AsyncInferenceServicer):
         self.lerobot_features = policy_specs.lerobot_features
         self.actions_per_chunk = policy_specs.actions_per_chunk
 
+        policy_cache_key = pickle.dumps(
+            (
+                policy_specs.policy_type,
+                policy_specs.pretrained_name_or_path,
+                policy_specs.device,
+                policy_specs.rename_map,
+                policy_specs.policy_kwargs,
+            ),
+            protocol=pickle.HIGHEST_PROTOCOL,
+        )
+        if self.policy is not None and self._policy_cache_key == policy_cache_key:
+            self.logger.info(
+                "Reusing already-loaded policy; updated actions per chunk to "
+                f"{self.actions_per_chunk}."
+            )
+            return services_pb2.Empty()
+
+        if self.policy is not None:
+            self.logger.info("Replacing loaded policy and clearing CUDA cache before reload.")
+            self.policy = None
+            self.preprocessor = None
+            self.postprocessor = None
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
         policy_class = get_policy_class(self.policy_type)
 
         start = time.perf_counter()
@@ -176,6 +205,7 @@ class PolicyServer(services_pb2_grpc.AsyncInferenceServicer):
         )
 
         end = time.perf_counter()
+        self._policy_cache_key = policy_cache_key
 
         self.logger.info(f"Time taken to put policy on {self.device}: {end - start:.4f} seconds")
 

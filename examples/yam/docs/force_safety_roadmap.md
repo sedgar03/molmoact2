@@ -1,0 +1,157 @@
+# YAM Glass Handling Force Safety Roadmap
+
+## Goal
+
+Build a sensing and veto layer below policy inference so the YAM arms stop or back off when measured load is larger than expected. The policy should propose actions; the safety layer decides whether each action is allowed.
+
+The working signal is:
+
+```text
+external_load = measured_joint_effort - expected_free_space_effort
+```
+
+For glass handling, `external_load` is treated as a guarded contact signal. Unexpected load must freeze, retreat, or abort the rollout before the arm keeps pushing.
+
+## Operating Assumptions
+
+- Inference should create YAM robots with `zero_gravity_mode=False` so the arm starts in position-hold control instead of gravity-comp idle.
+- This is not enough for glass safety. Position control can still push through fragile objects if bad targets keep arriving.
+- The force safety layer must live below MolmoAct, near `RobotEnv.step_command_only()` or `YAMRobot.command_joint_state()`, so every command path is guarded.
+- Learned estimators are useful after deterministic limits are in place. They should improve sensitivity, not be the first and only protection.
+
+## Phase 0: Make State Observable
+
+Expose and log the robot quantities needed to estimate load:
+
+- `joint_pos`
+- `joint_vel`
+- `joint_eff`
+- commanded target joint positions
+- command deltas and interpolation step count
+- gripper position, velocity, and effort
+- robot config values: `zero_gravity_mode`, `kp`, `kd`, gravity compensation factor, joint limits, gripper force limit
+
+Acceptance criteria:
+
+- Every rollout step can be replayed with policy action, command sent to robot, measured joint state, and measured effort.
+- The YAM wrapper exposes arm effort and gripper effort in observations.
+- A dry-run script can collect free-space motion logs without running policy inference.
+
+## Phase 1: Deterministic Effort Watchdog
+
+Add a conservative watchdog before any learned observer:
+
+```text
+effort_score[i] = abs(filtered_joint_eff[i])
+```
+
+The watchdog should support:
+
+- per-joint warning thresholds
+- per-joint hard-stop thresholds
+- total norm threshold
+- short filtering window, initially 30-100 ms
+- minimum duration before trigger, initially 2-3 control ticks
+- command delta and velocity limits
+
+Actions on trigger:
+
+- warning: freeze target at current pose
+- stop: abort rollout and hold current pose
+- severe stop: abort and optionally disable actuation if the arm is still driving into contact
+
+Acceptance criteria:
+
+- A single config enables or disables the watchdog.
+- Threshold events are logged with timestamp, joint, measured effort, command, and action taken.
+- Policy actions cannot bypass the watchdog.
+
+## Phase 2: Model-Based Expected Effort
+
+Replace raw effort thresholds with residual thresholds:
+
+```text
+expected_joint_effort =
+    gravity_torque(q)
+  + commanded_pd_effort(q_target, q, qdot)
+  + friction_estimate(qdot)
+  + payload_bias
+
+residual = measured_joint_effort - expected_joint_effort
+```
+
+Initial model:
+
+- use the i2rt gravity model already available in `MotorChainRobot`
+- estimate commanded PD effort from the current target, current position, current velocity, `kp`, and `kd`
+- use a simple per-joint Coulomb/viscous friction fit from free-space logs
+- keep payload/tool state explicit; glass tools and grippers need separate baselines
+
+Acceptance criteria:
+
+- Residual is near zero in free-space motion at normal inference speeds.
+- Residual spikes on deliberate gentle contact with foam or a force gauge.
+- False positives are low enough to finish non-contact rollouts.
+
+## Phase 3: NEXT-Lite Learned Observer
+
+Reproduce the practical FACTR2/NEXT idea for this stack:
+
+```text
+expected_free_space_effort = f(history(q, qdot, command, gripper))
+external_load = measured_joint_effort - expected_free_space_effort
+```
+
+Start with free-space-only training data:
+
+- slow, medium, and inference-speed arm motions
+- all regions of the glass-handling envelope
+- gripper open/close cycles
+- expected payload/tool configurations
+- both arms independently and bimanual motion if used in production
+
+Candidate models:
+
+- small MLP over recent finite differences for a first pass
+- small LSTM/GRU over 0.2-0.5 s history for better friction and lag modeling
+
+Acceptance criteria:
+
+- External-load estimate remains quiet in free space.
+- Estimate detects gentle contact earlier than raw effort thresholds.
+- Runtime is fast enough for the robot command loop or a nearby monitor thread.
+
+## Phase 4: Glass Mode
+
+Add a stricter operating profile when glass is in the workspace:
+
+- lower residual thresholds near known glass regions
+- lower maximum joint delta per control tick
+- lower gripper force limit
+- no high-speed moves toward glass
+- automatic retreat on contact while approaching glass
+- require explicit phase labels: free-space, pre-contact, contact, grasp, retreat
+
+Acceptance criteria:
+
+- Contact with a fragile surrogate triggers freeze or retreat before visible deformation.
+- Gripper cannot exceed configured glass force limit during grasp attempts.
+- The monitor can explain every intervention from logged signals.
+
+## Immediate Work Items
+
+1. Add `zero_gravity_mode=False` and lower `limit_gripper_force` plumbing to the YAM wrapper/config.
+2. Add `joint_eff`, `gripper_eff`, and robot config fields to YAM observations.
+3. Add a `ForceSafetyMonitor` with raw effort thresholds and command-delta limits.
+4. Add a free-space data collection script for threshold tuning.
+5. Record free-space logs and derive first thresholds.
+6. Upgrade the monitor from raw effort to residual effort.
+7. Train and evaluate NEXT-lite on free-space logs.
+
+## Open Questions
+
+- What glass objects matter first: flat panes, beakers, bottles, slides, or general glassware?
+- Do we know the expected end-effector payload and tool mass for each task?
+- Should contact response be freeze-only at first, or freeze plus small retreat?
+- Which process owns final authority: MolmoAct launcher, YAM wrapper, or i2rt `MotorChainRobot`?
+- What is the acceptable false-stop rate during early development?
