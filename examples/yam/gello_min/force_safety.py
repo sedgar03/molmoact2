@@ -31,9 +31,9 @@ def _as_limit_array(value: Any, n: int, name: str) -> Optional[np.ndarray]:
 class ForceSafetyMonitor:
     """Small deterministic guard for YAM commands.
 
-    This is intentionally a raw-effort and command-limit guard. The next step is
-    replacing raw effort thresholds with residual thresholds once free-space
-    effort logs exist.
+    This is intentionally a raw-effort guard with an optional synchronized
+    command limiter. The next step is replacing raw effort thresholds with
+    residual thresholds once free-space effort logs exist.
     """
 
     def __init__(self, cfg: Optional[Dict[str, Any]], num_dofs: int):
@@ -51,6 +51,9 @@ class ForceSafetyMonitor:
         self.hard_abs_effort = _as_limit_array(
             cfg.get("hard_abs_effort"), self.num_dofs, "hard_abs_effort"
         )
+        self.command_limit_mode = str(cfg.get("command_limit_mode", "off"))
+        if self.command_limit_mode not in ("off", "scale"):
+            raise ValueError("force_safety.command_limit_mode must be 'off' or 'scale'")
         self.max_command_delta = _as_limit_array(
             cfg.get("max_command_delta"), self.num_dofs, "max_command_delta"
         )
@@ -86,7 +89,7 @@ class ForceSafetyMonitor:
         if current.shape != (self.num_dofs,):
             raise ValueError(f"Current joint shape {current.shape} != ({self.num_dofs},)")
 
-        command = self._clip_command_delta(target, current)
+        command = self._limit_command_delta(target, current)
         effort = self._read_effort(obs)
         if effort is None:
             return ForceSafetyDecision(command=command, abort=False)
@@ -126,11 +129,28 @@ class ForceSafetyMonitor:
             return ForceSafetyDecision(command=current, abort=False, reason=reason)
         return ForceSafetyDecision(command=command, abort=False)
 
-    def _clip_command_delta(self, target: np.ndarray, current: np.ndarray) -> np.ndarray:
-        if self.max_command_delta is None:
+    def _limit_command_delta(self, target: np.ndarray, current: np.ndarray) -> np.ndarray:
+        if self.command_limit_mode == "off" or self.max_command_delta is None:
             return target
-        delta = np.clip(target - current, -self.max_command_delta, self.max_command_delta)
-        return current + delta
+
+        limit = self.max_command_delta
+        if np.any(limit <= 0.0):
+            raise ValueError("force_safety.max_command_delta values must be positive")
+
+        delta = target - current
+        ratios = np.divide(
+            np.abs(delta),
+            limit,
+            out=np.zeros_like(delta, dtype=float),
+            where=limit > 0.0,
+        )
+        max_ratio = float(np.max(ratios))
+        if max_ratio <= 1.0:
+            return target
+
+        # Scale the full command vector together. This preserves the requested
+        # joint-space path instead of independently clipping individual joints.
+        return current + delta / max_ratio
 
     def _read_effort(self, obs: Dict[str, Any]) -> Optional[np.ndarray]:
         raw = obs.get("joint_efforts")

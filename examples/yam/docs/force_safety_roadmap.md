@@ -52,7 +52,8 @@ The watchdog should support:
 - total norm threshold
 - short filtering window, initially 30-100 ms
 - minimum duration before trigger, initially 2-3 control ticks
-- command delta and velocity limits
+- optional synchronized command delta and velocity limits for unattended
+  inference; keep these off for supervised tele-op and training
 
 Actions on trigger:
 
@@ -126,7 +127,8 @@ Acceptance criteria:
 Add a stricter operating profile when glass is in the workspace:
 
 - lower residual thresholds near known glass regions
-- lower maximum joint delta per control tick
+- lower synchronized joint-space delta per control tick when running
+  unattended inference
 - lower gripper force limit
 - no high-speed moves toward glass
 - automatic retreat on contact while approaching glass

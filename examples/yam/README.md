@@ -136,7 +136,7 @@ camera per frame under `left_rgb/`, `front_rgb/`, `right_rgb/`.
 | `eval.local.*` | Checkpoint / device / dtype for `mode: local`. |
 | `eval.camera_server.enabled` | `true` uses the ZMQ camera server; `false` opens cameras in-process. |
 | `eval.live_view_enabled` | `false` disables the cv2 window (headless runs). |
-| `force_safety.*` | Command clipping and optional raw-effort hold/abort thresholds. |
+| `force_safety.*` | Optional synchronized command limiting and raw-effort hold/abort thresholds. |
 | `max_steps` | Per-rollout timeout in control steps. |
 | `storage.*` | Output location, instruction, PNG save settings. |
 | `lerobot.*` | End-of-session dataset conversion knobs. |
@@ -151,7 +151,12 @@ Current defaults:
 
 - YAM arms are created with `zero_gravity_mode: false` for inference.
 - Gripper force is capped through i2rt's `limit_gripper_force` argument.
-- Per-tick command deltas are clipped before reaching the robot.
+- Command limiting is off by default so supervised tele-op and training remain
+  responsive while a human is watching.
+- If command limiting is enabled for unattended inference, it uses synchronized
+  joint-space scaling (`command_limit_mode: scale`) instead of independently
+  clipping each joint. That preserves the requested path direction while the
+  arm catches up over multiple control ticks.
 - Raw effort thresholds are present but left unset until free-space effort logs
   are collected for the active arms, grippers, payload, and speed.
 

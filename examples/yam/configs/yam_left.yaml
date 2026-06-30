@@ -29,15 +29,19 @@ agent:
 hz: 30            # control loop rate
 max_steps: 1000   # per-rollout timeout in control steps
 
-# First-pass command/effort guard. Command delta limits are active immediately.
+# First-pass effort guard. Command limiting is intentionally off by default:
+# supervised tele-op/training should stay responsive while a human is watching.
+# For unattended inference, set command_limit_mode: scale plus max_command_delta
+# to use synchronized joint-space scaling instead of independent joint clipping.
 # Raw effort thresholds are intentionally unset until free-space baselines are
 # collected for the current arms, grippers, payload, and task speed.
 force_safety:
   enabled: true
   filter_alpha: 0.35
   min_trigger_ticks: 2
-  max_command_delta: 0.015
-  max_gripper_delta: 0.02
+  command_limit_mode: off  # off | scale
+  max_command_delta: null
+  max_gripper_delta: null
   warning_abs_effort: null
   hard_abs_effort: null
   hard_effort_norm: null
