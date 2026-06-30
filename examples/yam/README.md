@@ -212,6 +212,28 @@ python examples/yam/analyze_force_baseline.py \
 Treat the output as a starting point. Validate warning/freeze and hard-abort
 behavior on a soft surrogate before using the thresholds around glass.
 
+## NEXT-lite training
+
+Train a learned free-space effort predictor from contact-free baseline logs:
+
+```bash
+python examples/yam/train_next_lite.py \
+  --input_glob "./yam_force_baselines/*/free_space_baseline.h5" \
+  --output_dir ./yam_next_lite_runs \
+  --history 50 \
+  --epochs 50
+```
+
+The model predicts expected free-space effort from recent
+`[q, qdot, commanded_q - q]`. At runtime, the contact signal is the residual:
+
+```text
+external_load = measured_effort - predicted_free_space_effort
+```
+
+Use the validation residual stats in `metrics.json` to choose first residual
+thresholds before wiring the model into live stop/retreat behavior.
+
 ## Camera server, standalone
 
 Sanity-check the cameras independently of the eval loop:

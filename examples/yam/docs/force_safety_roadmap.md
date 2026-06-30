@@ -145,9 +145,9 @@ Acceptance criteria:
 
 1. Record free-space logs with `collect_force_baseline.py`.
 2. Derive first conservative raw effort warning/hard thresholds with `analyze_force_baseline.py`.
-3. Enable thresholds in `configs/yam_left.yaml` and validate freeze/abort behavior on a soft surrogate.
-4. Upgrade the monitor from raw effort to residual effort.
-5. Train and evaluate NEXT-lite on free-space logs.
+3. Train and evaluate NEXT-lite on free-space logs with `train_next_lite.py`.
+4. Enable raw or residual thresholds in `configs/yam_left.yaml` and validate freeze/abort behavior on a soft surrogate.
+5. Wire the trained NEXT-lite checkpoint into the live force monitor.
 
 ## Implementation Log
 
@@ -161,6 +161,7 @@ Acceptance criteria:
 - Rollout `episode.h5` files now record policy targets, requested commands, sent commands, command deltas, interpolation step counts, joint velocities, and joint efforts for replay/modeling.
 - Added `collect_force_baseline.py` to gather contact-free per-control-tick HDF5 logs without policy inference.
 - Added `analyze_force_baseline.py` to turn those logs into first-pass raw effort threshold recommendations.
+- Added `train_next_lite.py` and `gello_min.next_lite` to train/evaluate a FACTR2-style free-space effort predictor from HDF5 logs.
 
 ## Open Questions
 
