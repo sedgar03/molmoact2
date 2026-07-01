@@ -160,6 +160,9 @@ Current defaults:
   arm catches up over multiple control ticks.
 - Raw effort thresholds are present but left unset until free-space effort logs
   are collected for the active arms, grippers, payload, and speed.
+- NEXT-lite residual thresholds are also present but left unset. They require a
+  trained `next_lite.checkpoint_path` and should be validated on a soft
+  surrogate before glass handling.
 
 Rollout HDF5 files include command/modeling fields when available:
 
@@ -233,6 +236,23 @@ external_load = measured_effort - predicted_free_space_effort
 
 Use the validation residual stats in `metrics.json` to choose first residual
 thresholds before wiring the model into live stop/retreat behavior.
+
+To enable residual monitoring after validation, set the checkpoint and residual
+thresholds in `configs/yam_left.yaml`:
+
+```yaml
+force_safety:
+  next_lite:
+    checkpoint_path: ./yam_next_lite_runs/<run_ts>/model.pt
+    device: cpu
+  warning_abs_residual: [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
+  hard_abs_residual: [0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2]
+  hard_residual_norm: 0.4
+```
+
+The monitor keeps the first `history` ticks as warmup. During warmup, raw effort
+thresholds still apply if configured, but residual thresholds do not trigger
+until the model has a full history window.
 
 ## Camera server, standalone
 

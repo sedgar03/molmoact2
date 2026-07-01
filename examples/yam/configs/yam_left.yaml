@@ -45,6 +45,12 @@ force_safety:
   warning_abs_effort: null
   hard_abs_effort: null
   hard_effort_norm: null
+  next_lite:
+    checkpoint_path: null
+    device: cpu
+  warning_abs_residual: null
+  hard_abs_residual: null
+  hard_residual_norm: null
 
 # Where rollouts + the LeRobot dataset are written:
 #   {base_dir}/data/{task_directory}/{eval,success,failure}/...
