@@ -28,6 +28,7 @@ dependencies = [
     "h5py>=3.11",
     "omegaconf>=2.3",
     "pyzmq>=26",
+    "matplotlib>=3.8",
 ]
 
 [tool.uv.sources]

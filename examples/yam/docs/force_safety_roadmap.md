@@ -122,6 +122,8 @@ Acceptance criteria:
 - External-load estimate remains quiet in free space.
 - Estimate detects gentle contact earlier than raw effort thresholds.
 - Runtime is fast enough for the robot command loop or a nearby monitor thread.
+- Operator view shows a FACTR2-style scalar contact score over time, with
+  per-joint residual available for diagnosis.
 
 ## Phase 4: Glass Mode
 
@@ -163,6 +165,7 @@ Acceptance criteria:
 - Added `analyze_force_baseline.py` to turn those logs into first-pass raw effort threshold recommendations.
 - Added `train_next_lite.py` and `gello_min.next_lite` to train/evaluate a FACTR2-style free-space effort predictor from HDF5 logs.
 - Wired optional NEXT-lite checkpoints into `ForceSafetyMonitor` so live residual thresholds can freeze/abort once a trained model and validation thresholds are configured.
+- Added `force_contact_score` telemetry, live camera-view force status, and `plot_force_timeline.py` for FACTR2-style free/pre-contact/contact timelines.
 
 ## Open Questions
 

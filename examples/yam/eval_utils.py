@@ -117,11 +117,33 @@ class EvalRolloutSaver:
                 "commanded_joint_positions",
                 "command_delta",
                 "smoothing_start_joint_positions",
+                "force_effort",
+                "force_expected_effort",
+                "force_residual",
             ):
                 if key in command_info and command_info[key] is not None:
                     record[key] = np.asarray(command_info[key], dtype=np.float32).copy()
-            if "interpolation_steps" in command_info:
-                record["interpolation_steps"] = int(command_info["interpolation_steps"])
+            for key in (
+                "interpolation_steps",
+                "force_contact_state_code",
+            ):
+                if key in command_info:
+                    record[key] = int(command_info[key])
+            for key in (
+                "force_contact_score",
+                "force_residual_l1",
+                "force_residual_l2",
+            ):
+                if key in command_info and command_info[key] is not None:
+                    record[key] = float(command_info[key])
+            if "force_contact_score_normalized" in command_info:
+                record["force_contact_score_normalized"] = int(
+                    bool(command_info["force_contact_score_normalized"])
+                )
+            if "force_next_lite_ready" in command_info:
+                record["force_next_lite_ready"] = int(
+                    bool(command_info["force_next_lite_ready"])
+                )
         if "joint_efforts" in obs_pre:
             record["joint_efforts"] = np.asarray(
                 obs_pre["joint_efforts"], dtype=np.float32
@@ -188,16 +210,30 @@ class EvalRolloutSaver:
                 "commanded_joint_positions",
                 "command_delta",
                 "smoothing_start_joint_positions",
+                "force_effort",
+                "force_expected_effort",
+                "force_residual",
             ):
                 if key in self._buffer[0]:
                     values = np.stack([rec[key] for rec in self._buffer]).astype(np.float32)
                     f.create_dataset(key, data=values, compression="gzip", compression_opts=4)
-            if "interpolation_steps" in self._buffer[0]:
-                steps = np.asarray(
-                    [rec["interpolation_steps"] for rec in self._buffer],
-                    dtype=np.int32,
-                )
-                f.create_dataset("interpolation_steps", data=steps)
+            for key in (
+                "interpolation_steps",
+                "force_contact_state_code",
+                "force_contact_score_normalized",
+                "force_next_lite_ready",
+            ):
+                if key in self._buffer[0]:
+                    values = np.asarray([rec[key] for rec in self._buffer], dtype=np.int32)
+                    f.create_dataset(key, data=values)
+            for key in (
+                "force_contact_score",
+                "force_residual_l1",
+                "force_residual_l2",
+            ):
+                if key in self._buffer[0]:
+                    values = np.asarray([rec[key] for rec in self._buffer], dtype=np.float32)
+                    f.create_dataset(key, data=values)
             if "joint_efforts" in self._buffer[0]:
                 efforts = np.stack(
                     [rec["joint_efforts"] for rec in self._buffer]
@@ -319,6 +355,7 @@ class LiveCameraView:
             "rollout_idx": 0, "num_rollouts": 1,
             "step": 0, "max_steps": 1,
             "instruction": "",
+            "force_telemetry": None,
         }
 
     # ------------------------------------------------------------------
@@ -418,7 +455,7 @@ class LiveCameraView:
     def _build_header(
         self, width: int, hdr: Dict[str, Any], stale_sec: Optional[float],
     ) -> np.ndarray:
-        header_h = 90
+        header_h = 120
         header = np.zeros((header_h, width, 3), dtype=np.uint8)
         rollout_idx = int(hdr.get("rollout_idx", 0))
         num_rollouts = int(hdr.get("num_rollouts", 1))
@@ -438,7 +475,61 @@ class LiveCameraView:
                 header, line, (10, 24 + i * 24),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA,
             )
+        self._draw_force_status(header, hdr)
         return header
+
+    def _draw_force_status(self, header: np.ndarray, hdr: Dict[str, Any]) -> None:
+        telemetry = hdr.get("force_telemetry")
+        if not isinstance(telemetry, dict):
+            return
+        score = telemetry.get("force_contact_score")
+        state_code = int(telemetry.get("force_contact_state_code", -1))
+        ready = bool(telemetry.get("force_next_lite_ready", False))
+        source = str(telemetry.get("force_contact_score_source", "force"))
+        state = {
+            -2: "WARMUP",
+            -1: "NO FORCE",
+            0: "FREE",
+            1: "PRE-CONTACT",
+            2: "CONTACT",
+        }.get(state_code, "UNKNOWN")
+        color = {
+            -2: (0, 200, 255),
+            -1: (160, 160, 160),
+            0: (120, 230, 160),
+            1: (0, 210, 255),
+            2: (80, 80, 255),
+        }.get(state_code, (200, 200, 200))
+        if score is None:
+            text = f"Force: {state}  source={source}  NEXT={'ready' if ready else 'not ready'}"
+            cv2.putText(
+                header, text, (10, 96),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 1, cv2.LINE_AA,
+            )
+            return
+
+        score_f = float(score)
+        text = (
+            f"Force: {state}  score={score_f:.3f}  source={source}  "
+            f"NEXT={'ready' if ready else 'not ready'}"
+        )
+        cv2.putText(
+            header, text, (10, 96),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 1, cv2.LINE_AA,
+        )
+        bar_x = min(620, max(10, header.shape[1] // 2))
+        bar_y = 86
+        bar_w = max(100, header.shape[1] - bar_x - 20)
+        bar_h = 16
+        cv2.rectangle(header, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h), (70, 70, 70), 1)
+        fill = min(1.0, max(0.0, score_f)) if telemetry.get("force_contact_score_normalized") else min(1.0, max(0.0, score_f / 1.0))
+        cv2.rectangle(
+            header,
+            (bar_x + 1, bar_y + 1),
+            (bar_x + 1 + int((bar_w - 2) * fill), bar_y + bar_h - 1),
+            color,
+            -1,
+        )
 
     # ------------------------------------------------------------------
     # Obs mode (legacy fallback)
@@ -458,6 +549,7 @@ class LiveCameraView:
         step: int,
         max_steps: int,
         instruction: str,
+        force_telemetry: Optional[Dict[str, Any]] = None,
     ) -> Optional[str]:
         self._ensure_window()
         panes: List[np.ndarray] = []
@@ -485,6 +577,7 @@ class LiveCameraView:
                 "rollout_idx": rollout_idx, "num_rollouts": num_rollouts,
                 "step": step, "max_steps": max_steps,
                 "instruction": instruction,
+                "force_telemetry": force_telemetry,
             },
             stale_sec=None,
         )
@@ -511,6 +604,7 @@ class LiveCameraView:
         step: int,
         max_steps: int,
         instruction: str,
+        force_telemetry: Optional[Dict[str, Any]] = None,
     ) -> Optional[str]:
         if not self.enabled:
             return None
@@ -532,6 +626,7 @@ class LiveCameraView:
                     "step": step,
                     "max_steps": max_steps,
                     "instruction": instruction,
+                    "force_telemetry": force_telemetry,
                 }
                 key = self._key_buf.popleft() if self._key_buf else None
             return key
@@ -543,6 +638,7 @@ class LiveCameraView:
             step=step,
             max_steps=max_steps,
             instruction=instruction,
+            force_telemetry=force_telemetry,
         )
 
     def close(self) -> None:

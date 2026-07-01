@@ -208,6 +208,9 @@ def dynamic_smoothing(
             command_results.append(env.step_command_only(jnt))
             time.sleep(0.001)
     final_command = command_results[-1].sent_command if command_results else target_joints
+    force_telemetry = (
+        command_results[-1].force_safety_telemetry if command_results else None
+    )
     command_info = {
         "requested_joint_positions": np.asarray(target_joints, dtype=np.float32).copy(),
         "commanded_joint_positions": np.asarray(final_command, dtype=np.float32).copy(),
@@ -218,6 +221,8 @@ def dynamic_smoothing(
         "smoothing_start_joint_positions": np.asarray(curr_joints, dtype=np.float32).copy(),
         "interpolation_steps": len(command_results),
     }
+    if force_telemetry is not None:
+        command_info.update(force_telemetry)
     return env.get_obs(), command_info
 
 
@@ -278,6 +283,7 @@ def run_one_rollout(
             step=step + 1,
             max_steps=max_steps,
             instruction=instruction,
+            force_telemetry=command_info,
         )
         if key == "y":
             return RolloutOutcome(end_reason="success", last_step=step + 1)

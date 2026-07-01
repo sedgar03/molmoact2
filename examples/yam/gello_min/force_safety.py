@@ -17,6 +17,44 @@ class ForceSafetyDecision:
     command: np.ndarray
     abort: bool
     reason: Optional[str] = None
+    telemetry: Optional[Dict[str, Any]] = None
+
+
+@dataclass
+class ForceSafetyTelemetry:
+    effort: Optional[np.ndarray] = None
+    expected_effort: Optional[np.ndarray] = None
+    residual: Optional[np.ndarray] = None
+    residual_l1: Optional[float] = None
+    residual_l2: Optional[float] = None
+    contact_score: Optional[float] = None
+    contact_score_normalized: bool = False
+    contact_score_source: str = "unavailable"
+    contact_state_code: int = -1
+    next_lite_ready: bool = False
+
+    def as_record(self) -> Dict[str, Any]:
+        record: Dict[str, Any] = {
+            "force_contact_score_normalized": bool(self.contact_score_normalized),
+            "force_contact_state_code": int(self.contact_state_code),
+            "force_next_lite_ready": bool(self.next_lite_ready),
+            "force_contact_score_source": self.contact_score_source,
+        }
+        if self.effort is not None:
+            record["force_effort"] = np.asarray(self.effort, dtype=np.float32).copy()
+        if self.expected_effort is not None:
+            record["force_expected_effort"] = np.asarray(
+                self.expected_effort, dtype=np.float32
+            ).copy()
+        if self.residual is not None:
+            record["force_residual"] = np.asarray(self.residual, dtype=np.float32).copy()
+        if self.residual_l1 is not None:
+            record["force_residual_l1"] = float(self.residual_l1)
+        if self.residual_l2 is not None:
+            record["force_residual_l2"] = float(self.residual_l2)
+        if self.contact_score is not None:
+            record["force_contact_score"] = float(self.contact_score)
+        return record
 
 
 def _as_limit_array(value: Any, n: int, name: str) -> Optional[np.ndarray]:
@@ -108,8 +146,16 @@ class ForceSafetyMonitor:
         command = self._limit_command_delta(target, current)
         effort = self._read_effort(obs)
         if effort is None:
-            return ForceSafetyDecision(command=command, abort=False)
-        residual = self._next_lite_residual(effort, current, command, obs)
+            telemetry = ForceSafetyTelemetry()
+            return ForceSafetyDecision(
+                command=command,
+                abort=False,
+                telemetry=telemetry.as_record(),
+            )
+        residual, expected_effort, next_ready = self._next_lite_residual(
+            effort, current, command, obs
+        )
+        telemetry = self._build_telemetry(effort, expected_effort, residual, next_ready)
 
         hard_reasons = []
         warn_reasons = []
@@ -160,12 +206,32 @@ class ForceSafetyMonitor:
             self._warn_ticks = 0
 
         if self._hard_ticks >= self.min_trigger_ticks:
+            telemetry.contact_state_code = 2
+        elif self._warn_ticks >= self.min_trigger_ticks:
+            telemetry.contact_state_code = 1
+        elif self._next_lite is not None and not next_ready:
+            telemetry.contact_state_code = -2
+        else:
+            telemetry.contact_state_code = 0
+        telemetry_record = telemetry.as_record()
+
+        if self._hard_ticks >= self.min_trigger_ticks:
             reason = "; ".join(hard_reasons)
-            return ForceSafetyDecision(command=current, abort=True, reason=reason)
+            return ForceSafetyDecision(
+                command=current,
+                abort=True,
+                reason=reason,
+                telemetry=telemetry_record,
+            )
         if self._warn_ticks >= self.min_trigger_ticks:
             reason = "; ".join(warn_reasons)
-            return ForceSafetyDecision(command=current, abort=False, reason=reason)
-        return ForceSafetyDecision(command=command, abort=False)
+            return ForceSafetyDecision(
+                command=current,
+                abort=False,
+                reason=reason,
+                telemetry=telemetry_record,
+            )
+        return ForceSafetyDecision(command=command, abort=False, telemetry=telemetry_record)
 
     def _load_next_lite(self, cfg: Dict[str, Any]) -> None:
         checkpoint_path = cfg.get("checkpoint_path")
@@ -213,9 +279,9 @@ class ForceSafetyMonitor:
         current: np.ndarray,
         command: np.ndarray,
         obs: Dict[str, Any],
-    ) -> Optional[np.ndarray]:
+    ) -> tuple[Optional[np.ndarray], Optional[np.ndarray], bool]:
         if self._next_lite is None or self._next_feature_history is None:
-            return None
+            return None, None, False
         velocity = np.asarray(obs["joint_velocities"], dtype=float).reshape(-1)
         if velocity.shape != (self.num_dofs,):
             raise ValueError(f"Velocity shape {velocity.shape} != ({self.num_dofs},)")
@@ -230,13 +296,57 @@ class ForceSafetyMonitor:
         features = make_next_features(current, velocity, command)
         self._next_feature_history.append(features)
         if len(self._next_feature_history) < self._next_lite.history:
-            return None
+            return None, None, False
 
         expected_effort = self._next_lite.predict_effort(
             np.stack(self._next_feature_history),
             device=self._next_lite_device,
         )
-        return effort - expected_effort
+        return effort - expected_effort, expected_effort, True
+
+    def _build_telemetry(
+        self,
+        effort: np.ndarray,
+        expected_effort: Optional[np.ndarray],
+        residual: Optional[np.ndarray],
+        next_ready: bool,
+    ) -> ForceSafetyTelemetry:
+        telemetry = ForceSafetyTelemetry(
+            effort=effort,
+            expected_effort=expected_effort,
+            residual=residual,
+            next_lite_ready=next_ready,
+        )
+        signal = residual if residual is not None else effort
+        telemetry.contact_score_source = "residual" if residual is not None else "effort"
+        abs_signal = np.abs(signal)
+
+        if residual is not None:
+            telemetry.residual_l1 = float(np.sum(abs_signal))
+            telemetry.residual_l2 = float(np.linalg.norm(residual))
+            if self.hard_abs_residual is not None:
+                ratios = abs_signal / self.hard_abs_residual
+                telemetry.contact_score = float(np.max(ratios))
+                telemetry.contact_score_normalized = True
+            elif self.hard_residual_norm is not None:
+                telemetry.contact_score = float(telemetry.residual_l2 / self.hard_residual_norm)
+                telemetry.contact_score_normalized = True
+            else:
+                telemetry.contact_score = telemetry.residual_l1
+            return telemetry
+
+        effort_l1 = float(np.sum(abs_signal))
+        effort_l2 = float(np.linalg.norm(effort))
+        if self.hard_abs_effort is not None:
+            ratios = abs_signal / self.hard_abs_effort
+            telemetry.contact_score = float(np.max(ratios))
+            telemetry.contact_score_normalized = True
+        elif self.hard_effort_norm is not None:
+            telemetry.contact_score = float(effort_l2 / self.hard_effort_norm)
+            telemetry.contact_score_normalized = True
+        else:
+            telemetry.contact_score = effort_l1
+        return telemetry
 
     def _limit_command_delta(self, target: np.ndarray, current: np.ndarray) -> np.ndarray:
         if self.command_limit_mode == "off" or self.max_command_delta is None:

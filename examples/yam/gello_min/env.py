@@ -19,6 +19,7 @@ class RobotCommandResult:
     timestamp: float
     force_safety_reason: Optional[str] = None
     force_safety_abort: bool = False
+    force_safety_telemetry: Optional[Dict[str, Any]] = None
 
 
 class Rate:
@@ -121,6 +122,7 @@ class RobotEnv:
             timestamp=time.time(),
             force_safety_reason=decision.reason,
             force_safety_abort=decision.abort,
+            force_safety_telemetry=decision.telemetry,
         )
         if decision.abort:
             raise ForceSafetyError(decision.reason or "force safety abort")

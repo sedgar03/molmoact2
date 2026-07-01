@@ -173,6 +173,9 @@ Rollout HDF5 files include command/modeling fields when available:
 - `command_delta`
 - `joint_velocities`, `next_joint_velocities`
 - `joint_efforts`, `next_joint_efforts`
+- `force_residual`
+- `force_contact_score`
+- `force_contact_state_code`
 - `interpolation_steps`
 
 Use those logs to tune first raw thresholds before enabling hard effort aborts.
@@ -253,6 +256,23 @@ force_safety:
 The monitor keeps the first `history` ticks as warmup. During warmup, raw effort
 thresholds still apply if configured, but residual thresholds do not trigger
 until the model has a full history window.
+
+## Force timeline plots
+
+The FACTR2-style operator signal is a scalar contact score, not XYZ force. We
+log `force_contact_score` and show it in the live camera header. With NEXT-lite
+enabled, this score comes from the learned external joint-torque residual.
+
+Generate a timeline plot from a rollout or baseline HDF5 file:
+
+```bash
+python examples/yam/plot_force_timeline.py \
+  ./yam_eval_runs/data/session/eval/<run_ts>/episode.h5 \
+  --output_path ./force_timeline.png
+```
+
+The plot shades free motion, pre-contact, and contact using hysteresis on the
+scalar score. Per-joint residuals remain in `force_residual` for diagnosis.
 
 ## Camera server, standalone
 
