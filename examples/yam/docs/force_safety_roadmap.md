@@ -143,6 +143,39 @@ Acceptance criteria:
 - Gripper cannot exceed configured glass force limit during grasp attempts.
 - The monitor can explain every intervention from logged signals.
 
+## Phase 5: Approximate Cartesian Wrench View
+
+Add an operator-facing diagnostic that maps joint residuals into an approximate
+end-effector wrench:
+
+```text
+tau_ext ~= J(q)^T wrench_ext
+wrench_ext ~= pinv(J(q)^T) tau_ext
+```
+
+This should be treated as interpretability, not the primary safety signal. The
+authoritative signals remain:
+
+- per-joint residual
+- scalar contact score
+- thresholded contact state
+
+Requirements:
+
+- reliable YAM kinematics and Jacobian for the active arm
+- clear convention for end-effector frame vs world/base frame
+- gripper joint excluded from arm-wrench solve
+- calibration against a soft surrogate or force gauge
+- UI label must say "estimated EE wrench" or equivalent, not ground-truth force
+
+Acceptance criteria:
+
+- Estimated wrench direction is qualitatively correct for simple hand-applied
+  loads on a soft surrogate.
+- The scalar contact score and per-joint residual still drive freeze/abort.
+- The plot/dashboard can show both `Fx/Fy/Fz` estimate and the underlying joint
+  residual that produced it.
+
 ## Immediate Work Items
 
 1. Record free-space logs with `collect_force_baseline.py`.
@@ -150,6 +183,8 @@ Acceptance criteria:
 3. Train and evaluate NEXT-lite on free-space logs with `train_next_lite.py`.
 4. Enable raw or residual thresholds in `configs/yam_left.yaml` and validate freeze/abort behavior on a soft surrogate.
 5. Tune task-phase thresholds and retreat behavior for glass handling.
+6. Add approximate Jacobian-based EE wrench visualization after residual
+   thresholds are validated.
 
 ## Implementation Log
 

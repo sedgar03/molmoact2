@@ -274,6 +274,17 @@ python examples/yam/plot_force_timeline.py \
 The plot shades free motion, pre-contact, and contact using hysteresis on the
 scalar score. Per-joint residuals remain in `force_residual` for diagnosis.
 
+A later diagnostic layer can estimate approximate end-effector wrench from the
+joint residual and the arm Jacobian:
+
+```text
+wrench_ext ~= pinv(J(q)^T) force_residual
+```
+
+That display would be useful for intuition (`Fx/Fy/Fz`), but the scalar contact
+score and per-joint residual should remain the safety signals until the wrench
+estimate is calibrated.
+
 ## Camera server, standalone
 
 Sanity-check the cameras independently of the eval loop:
