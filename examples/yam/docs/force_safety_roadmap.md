@@ -105,6 +105,7 @@ external_load = measured_joint_effort - expected_free_space_effort
 
 Start with free-space-only training data:
 
+- human-guided leader/follower logs for the cluttered bench setup
 - slow, medium, and inference-speed arm motions
 - reachable regions of the glass-handling envelope that clear the table,
   camera pole, cables, and fixtures
@@ -178,12 +179,14 @@ Acceptance criteria:
 
 ## Immediate Work Items
 
-1. Record free-space logs with `collect_force_baseline.py`.
-2. Derive first conservative raw effort warning/hard thresholds with `analyze_force_baseline.py`.
-3. Train and evaluate NEXT-lite on free-space logs with `train_next_lite.py`.
-4. Enable raw or residual thresholds in `configs/yam_left.yaml` and validate freeze/abort behavior on a soft surrogate.
-5. Tune task-phase thresholds and retreat behavior for glass handling.
-6. Add approximate Jacobian-based EE wrench visualization after residual
+1. Record contact-free tele-op logs with `record_teleop_force_log.py`.
+2. Record small scripted free-space logs with `collect_force_baseline.py` only
+   in known-clear local pose regions.
+3. Derive first conservative raw effort warning/hard thresholds with `analyze_force_baseline.py`.
+4. Train and evaluate NEXT-lite on free-space logs with `train_next_lite.py`.
+5. Enable raw or residual thresholds in `configs/yam_left.yaml` and validate freeze/abort behavior on a soft surrogate.
+6. Tune task-phase thresholds and retreat behavior for glass handling.
+7. Add approximate Jacobian-based EE wrench visualization after residual
    thresholds are validated.
 
 ## Implementation Log
@@ -201,6 +204,7 @@ Acceptance criteria:
 - Added `train_next_lite.py` and `gello_min.next_lite` to train/evaluate a FACTR2-style free-space effort predictor from HDF5 logs.
 - Wired optional NEXT-lite checkpoints into `ForceSafetyMonitor` so live residual thresholds can freeze/abort once a trained model and validation thresholds are configured.
 - Added `force_contact_score` telemetry, live camera-view force status, and `plot_force_timeline.py` for FACTR2-style free/pre-contact/contact timelines.
+- Added `record_teleop_force_log.py` for passive leader/follower free-space data collection through the i2rt follower portal server.
 
 ## Open Questions
 

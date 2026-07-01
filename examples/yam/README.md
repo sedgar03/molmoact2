@@ -218,13 +218,38 @@ python examples/yam/analyze_force_baseline.py \
 Treat the output as a starting point. Validate warning/freeze and hard-abort
 behavior on a soft surrogate before using the thresholds around glass.
 
+## Tele-op force logging
+
+For cluttered benches, prefer human-guided leader/follower data over autonomous
+sweeps. Start the i2rt follower server, then run the passive logger in parallel:
+
+```bash
+python examples/yam/record_teleop_force_log.py \
+  --output_dir ./yam_teleop_force_logs \
+  --host 127.0.0.1 \
+  --port 11333 \
+  --hz 50 \
+  --duration_sec 120
+```
+
+The logger connects to the follower `minimum_gello.py` portal server and only
+calls read methods. It does not open CAN and does not command the robot. Move
+the leader/follower through contact-free, task-relevant free-space motions:
+slow, medium, above-table, near-but-clear of fixtures, and around the intended
+glass-handling envelope.
+
+The current passive logger cannot see the leader's exact target command, so it
+stores `commanded_joint_positions = joint_positions` as an explicit proxy. That
+is sufficient for first residual experiments; exact command-target logging can
+be added inside the teleop command path later.
+
 ## NEXT-lite training
 
 Train a learned free-space effort predictor from contact-free baseline logs:
 
 ```bash
 python examples/yam/train_next_lite.py \
-  --input_glob "./yam_force_baselines/*/free_space_baseline.h5" \
+  --input_glob "./yam_force_baselines/*/free_space_baseline.h5,./yam_teleop_force_logs/*/teleop_force_log.h5" \
   --output_dir ./yam_next_lite_runs \
   --history 50 \
   --epochs 50
