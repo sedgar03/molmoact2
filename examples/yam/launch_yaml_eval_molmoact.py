@@ -97,6 +97,18 @@ class Args:
     num_rollouts: Annotated[int, tyro.conf.arg(aliases=("-n",))] = 1
     """How many rollouts to run in this session."""
 
+    dry_run_actions: bool = False
+    """Query and save policy actions without moving or parking the robot."""
+
+    instruction: Optional[str] = None
+    """Optional task instruction. If omitted, prompt on stdin as before."""
+
+    molmoact_server: Optional[str] = None
+    """Optional server URL override for eval.molmoact_server."""
+
+    max_steps: Optional[int] = None
+    """Optional per-rollout max step override."""
+
 
 # ---------------------------------------------------------------------------
 # Setup
@@ -235,6 +247,7 @@ def run_one_rollout(
     num_rollouts: int,
     max_steps: int,
     live_view: LiveCameraView,
+    dry_run_actions: bool = False,
 ) -> RolloutOutcome:
     """Execute one rollout and buffer per-step observations into ``saver``.
 
@@ -265,9 +278,20 @@ def run_one_rollout(
                 "data_info",
             )
 
-        action = np.asarray(action_chunk[step % chunk_size])
         obs_pre = env.get_obs()
-        obs_post, command_info = dynamic_smoothing(env, action)
+        action = np.asarray(action_chunk[step % chunk_size])
+        if dry_run_actions:
+            curr_joints = np.asarray(obs_pre["joint_positions"], dtype=np.float32).copy()
+            obs_post = obs_pre
+            command_info = {
+                "requested_joint_positions": action.astype(np.float32).copy(),
+                "commanded_joint_positions": curr_joints.copy(),
+                "command_delta": np.zeros_like(curr_joints, dtype=np.float32),
+                "smoothing_start_joint_positions": curr_joints.copy(),
+                "interpolation_steps": 0,
+            }
+        else:
+            obs_post, command_info = dynamic_smoothing(env, action)
 
         saver.add_step(
             obs_pre=obs_pre,
@@ -307,6 +331,9 @@ def run_session(
     right_cfg: Optional[Dict[str, Any]],
     bimanual: bool,
     num_rollouts: int,
+    dry_run_actions: bool = False,
+    instruction_override: Optional[str] = None,
+    max_steps_override: Optional[int] = None,
 ) -> None:
     """Drive ``num_rollouts`` rollouts; convert the labeled set to LeRobot at the end.
 
@@ -316,7 +343,7 @@ def run_session(
     """
     storage = left_cfg["storage"]
     base_save_dir = Path(storage["base_dir"]) / "data" / storage["task_directory"]
-    max_steps = int(left_cfg.get("max_steps", 1000))
+    max_steps = int(max_steps_override or left_cfg.get("max_steps", 1000))
     last_prompt = storage.get("language_instruction") or ""
 
     eval_cfg = left_cfg.get("eval") or {}
@@ -335,8 +362,14 @@ def run_session(
 
     try:
         for rollout_idx in range(num_rollouts):
-            move_to_start_position(env, bimanual, left_cfg, right_cfg)
-            instruction = prompt_instruction(rollout_idx, num_rollouts, last_prompt)
+            if dry_run_actions:
+                print("[dry-run] Skipping move_to_start_position; robot will not be commanded.")
+            else:
+                move_to_start_position(env, bimanual, left_cfg, right_cfg)
+            if instruction_override is not None:
+                instruction = instruction_override
+            else:
+                instruction = prompt_instruction(rollout_idx, num_rollouts, last_prompt)
             last_prompt = instruction
 
             rollout_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -361,6 +394,7 @@ def run_session(
                 num_rollouts=num_rollouts,
                 max_steps=max_steps,
                 live_view=live_view,
+                dry_run_actions=dry_run_actions,
             )
 
             saver.flush()
@@ -446,11 +480,11 @@ def _convert_if_any(
 
 
 def main() -> None:
-    atexit.register(_park_robot)
-
     args = tyro.cli(Args)
     if args.num_rollouts < 1:
         raise SystemExit("--num_rollouts must be >= 1")
+    if not args.dry_run_actions:
+        atexit.register(_park_robot)
 
     env, left_cfg, right_cfg, bimanual = _build_env(args)
 
@@ -460,7 +494,9 @@ def main() -> None:
     _left_cfg = left_cfg
     _right_cfg = right_cfg
 
-    if bimanual:
+    if args.dry_run_actions:
+        print("[dry-run] Start-position move and exit parking are disabled.")
+    elif bimanual:
         move_to_start_position(env, True, left_cfg, right_cfg)
     else:
         move_to_start_position(env, False, left_cfg)
@@ -473,6 +509,8 @@ def main() -> None:
     )
 
     eval_cfg = left_cfg.get("eval") or {}
+    if args.molmoact_server:
+        eval_cfg["molmoact_server"] = args.molmoact_server
     mode = eval_cfg.get("mode", "server")
     if mode == "local":
         policy = MolmoActLocal(**(eval_cfg.get("local") or {}))
@@ -487,6 +525,9 @@ def main() -> None:
         right_cfg=right_cfg,
         bimanual=bimanual,
         num_rollouts=args.num_rollouts,
+        dry_run_actions=args.dry_run_actions,
+        instruction_override=args.instruction,
+        max_steps_override=args.max_steps,
     )
 
 

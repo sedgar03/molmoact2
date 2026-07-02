@@ -99,14 +99,35 @@ Acceptance criteria:
 Reproduce the practical FACTR2/NEXT idea for this stack:
 
 ```text
-expected_free_space_effort = f(history(q, qdot, command, gripper))
+expected_free_space_effort = f(history(q, qdot, commanded_q - q, gripper))
 external_load = measured_joint_effort - expected_free_space_effort
 ```
 
+Source-backed implementation constraints from FACTR2/NEXT:
+
+- Train only on contact-free free-space data. Contact belongs in held-out
+  evaluation or downstream FIRST-style phase labeling, not in the free-space
+  inverse-dynamics target.
+- Capture at 100 Hz when possible. The reference NEXT setup uses 100 Hz data
+  and a 50-tick LSTM history, so the model has about 0.5 s of recent motion
+  context.
+- The live deployment input must include true command tracking error
+  `commanded_q - q`. A read-only stream that substitutes `commanded_q = q` is
+  useful only for pipeline smoke tests; it is not a valid contact test because
+  it hides controller tracking error and turns fast free-space dynamics into
+  apparent external load.
+- The scalar operator signal should be `||external_load||_1` with hysteresis
+  for free/pre-contact/contact labeling. Per-joint residuals remain available
+  for diagnosis.
+
 Start with free-space-only training data:
 
-- human-guided leader/follower logs for the cluttered bench setup
-- slow, medium, and inference-speed arm motions
+- human-guided leader/follower logs for the cluttered bench setup, recorded by
+  the command-aware collector
+- independent single-joint motions across the safe range for each joint
+- Cartesian-like multi-joint end-effector motions through the task envelope
+- repeated slow and fast motions to capture velocity-dependent dynamics,
+  friction, hysteresis, and controller lag
 - reachable regions of the glass-handling envelope that clear the table,
   camera pole, cables, and fixtures
 - gripper open/close cycles
@@ -115,8 +136,9 @@ Start with free-space-only training data:
 
 Candidate models:
 
-- small MLP over recent finite differences for a first pass
-- small LSTM/GRU over 0.2-0.5 s history for better friction and lag modeling
+- keep the FACTR2-like default as a 2-layer LSTM over 50 ticks of
+  `[q, qdot, commanded_q - q]`
+- use MLP/GRU variants only for ablations or troubleshooting
 
 Acceptance criteria:
 
@@ -179,14 +201,18 @@ Acceptance criteria:
 
 ## Immediate Work Items
 
-1. Record contact-free tele-op logs with `record_teleop_force_log.py`.
-2. Record small scripted free-space logs with `collect_force_baseline.py` only
-   in known-clear local pose regions.
-3. Derive first conservative raw effort warning/hard thresholds with `analyze_force_baseline.py`.
-4. Train and evaluate NEXT-lite on free-space logs with `train_next_lite.py`.
-5. Enable raw or residual thresholds in `configs/yam_left.yaml` and validate freeze/abort behavior on a soft surrogate.
-6. Tune task-phase thresholds and retreat behavior for glass handling.
-7. Add approximate Jacobian-based EE wrench visualization after residual
+1. Replace the dashboard's passive residual stream with a command-aware live
+   stream that receives the true target sent to the follower.
+2. Record a clean 10-minute contact-free command-aware run at 100 Hz with:
+   independent safe single-joint motions, Cartesian-like multi-joint motions,
+   and repeated slow/fast coverage.
+3. Keep contact/JBL/push tests out of training; use them as held-out
+   evaluation after the free-space model is trained.
+4. Derive first conservative raw effort warning/hard thresholds with `analyze_force_baseline.py`.
+5. Train and evaluate NEXT-lite on free-space logs with `train_next_lite.py`.
+6. Enable raw or residual thresholds in `configs/yam_left.yaml` and validate freeze/abort behavior on a soft surrogate.
+7. Tune task-phase thresholds and retreat behavior for glass handling.
+8. Add approximate Jacobian-based EE wrench visualization after residual
    thresholds are validated.
 
 ## Implementation Log
@@ -205,6 +231,19 @@ Acceptance criteria:
 - Wired optional NEXT-lite checkpoints into `ForceSafetyMonitor` so live residual thresholds can freeze/abort once a trained model and validation thresholds are configured.
 - Added `force_contact_score` telemetry, live camera-view force status, and `plot_force_timeline.py` for FACTR2-style free/pre-contact/contact timelines.
 - Added `record_teleop_force_log.py` for passive leader/follower free-space data collection through the i2rt follower portal server.
+
+2026-07-01:
+
+- Re-read FACTR2/NEXT sources and local X/PDF captures. The reference method
+  trains a free-space inverse-dynamics LSTM on contact-free data and deploys at
+  100 Hz with a 50-tick history of `[q, qdot, commanded_q - q]`.
+- Validated that the passive live dashboard stream is not sufficient for
+  contact testing because it substitutes `commanded_q = q`. On a left-arm
+  contact-probe log, the command-aware residual had L2 p99 `1.83`, while the
+  proxy-command residual had L2 p99 `9.71`.
+- Next implementation step is a command-aware live dashboard path, then a clean
+  10-minute 100 Hz free-space run with deliberate slow/fast safe-envelope
+  coverage.
 
 ## Open Questions
 

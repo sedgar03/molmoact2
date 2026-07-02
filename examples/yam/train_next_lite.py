@@ -335,7 +335,7 @@ def main() -> None:
         history_rows.append({"epoch": epoch, "train_loss": train_loss, "val_loss": val_loss})
         if val_loss < best_val:
             best_val = val_loss
-            best_state = {k: v.detach().cpu() for k, v in model.state_dict().items()}
+            best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
         print(
             f"epoch {epoch:03d} train_loss={train_loss:.6f} "
             f"val_loss={val_loss:.6f} val_norm_q99={val_resid_stats['norm_q99']:.6g}"

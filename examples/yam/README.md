@@ -218,10 +218,59 @@ python examples/yam/analyze_force_baseline.py \
 Treat the output as a starting point. Validate warning/freeze and hard-abort
 behavior on a soft surrogate before using the thresholds around glass.
 
+## NEXT-lite expected-effort model
+
+For FACTR2-style external torque, train NEXT-lite on contact-free logs and plot
+the residual instead of raw effort:
+
+```bash
+python examples/yam/train_next_lite.py \
+  --input-glob "./yam_teleop_force_logs/*/teleop_force_log.h5" \
+  --output_dir ./yam_next_lite_runs \
+  --history 50 \
+  --epochs 50
+
+python examples/yam/apply_next_lite.py \
+  ./yam_teleop_force_logs/<run_ts>/teleop_force_log.h5 \
+  ./yam_next_lite_runs/<train_ts>/model.pt \
+  --output_path ./yam_teleop_force_logs/<run_ts>/teleop_force_log_with_residual.h5
+
+python examples/yam/plot_force_timeline.py \
+  ./yam_teleop_force_logs/<run_ts>/teleop_force_log_with_residual.h5 \
+  --output_path ./yam_teleop_force_logs/<run_ts>/force_residual_timeline.png
+```
+
+The passive tele-op logger stores `commanded_joint_positions` as the observed
+joint position proxy. That is enough to smoke-test the residual pipeline, but
+it is not sufficient for FACTR2/NEXT-quality contact testing. NEXT relies on
+the command tracking error `commanded_q - q` to model controller effort and
+actuator response, especially during fast free-space motion. Use the
+command-aware GELLO collector for training data and for live validation.
+
+For live read-only smoke testing from a Mac while the follower portal server
+runs on the robot PC:
+
+```bash
+python examples/yam/live_next_lite_force_monitor.py \
+  ./yam_next_lite_runs/<train_ts>/model.pt \
+  --ssh-host steven@100.99.120.65 \
+  --host 127.0.0.1 \
+  --port 11333 \
+  --hz 30
+```
+
+This opens a local cv2 window with the rolling scalar residual and per-joint
+residual bars. It does not command the robot. The robot PC runs
+`examples/yam/stream_teleop_force.py` over SSH, which only reads from the
+existing follower portal server. Because this path cannot see the active
+leader/follower target command, it should not be used to decide whether light
+contact is detected correctly.
+
 ## Tele-op force logging
 
 For cluttered benches, prefer human-guided leader/follower data over autonomous
-sweeps. Start the i2rt follower server, then run the passive logger in parallel:
+sweeps. The passive logger is only for read-only pipeline checks. Start the
+i2rt follower server, then run the passive logger in parallel:
 
 ```bash
 python examples/yam/record_teleop_force_log.py \
@@ -239,9 +288,98 @@ slow, medium, above-table, near-but-clear of fixtures, and around the intended
 glass-handling envelope.
 
 The current passive logger cannot see the leader's exact target command, so it
-stores `commanded_joint_positions = joint_positions` as an explicit proxy. That
-is sufficient for first residual experiments; exact command-target logging can
-be added inside the teleop command path later.
+stores `commanded_joint_positions = joint_positions` as an explicit proxy. Do
+not train the production NEXT-lite model from this proxy data unless there is
+no command-aware alternative.
+
+For NEXT training data, use the command-aware GELLO collector. It owns the
+leader loop, runs at 100 Hz by default, and records the actual target sent to
+the follower as `commanded_joint_positions`:
+
+```bash
+python examples/yam/record_gello_next_dataset.py \
+  --output-dir ./yam_next_data_logs \
+  --server-host 127.0.0.1 \
+  --server-port 11333 \
+  --leader-can-channel can_leader_l \
+  --hz 100 \
+  --duration-sec 600 \
+  --next-lite-checkpoint ./yam_next_lite_runs/<train_ts>/model.pt \
+  --force-stream-jsonl /tmp/yam_left_force.jsonl \
+  --force-stream-hz 30 \
+  --arm-label left
+```
+
+This script is motion-capable because it replaces the normal
+`minimum_gello.py --mode leader` process. The follower server must already be
+running. Press the leader top button to synchronize/start, then move through
+contact-free, task-relevant free-space motions. Press the leader top button
+again or `Ctrl-C` to stop and flush the HDF5 log. Keep contact, bumps, fixture
+touches, and object pushes out of training logs; those runs are useful as
+held-out evaluation after the free-space model is trained.
+
+Match the FACTR2/NEXT data-collection pattern as closely as the bench permits:
+
+- independent safe single-joint motion across each joint's clear range
+- Cartesian-like multi-joint end-effector motion through the task envelope
+- repeated slow and fast motions to cover velocity-dependent dynamics
+- expected payload/tool/gripper configurations
+- no contact with the table, camera pole, objects, cables, or glass
+
+The ThinkPad recording dashboard can display this command-aware stream by
+reading the same JSONL file:
+
+```bash
+YAM_FORCE_JSONL=/tmp/yam_left_force.jsonl \
+python3 scripts/yam_button_record_dashboard.py --port 8090
+```
+
+The force panel should show `command-aware` once the recorder has synchronized
+and NEXT-lite has warmed up. If it shows `proxy`, the dashboard is looking at a
+read-only smoke-test stream rather than the true leader/follower command path.
+
+The command-aware log captures future-proof numeric streams:
+
+- follower `joint_positions`, `joint_velocities`, and `joint_efforts`
+- true `commanded_joint_positions` sent to the follower
+- derived `commanded_joint_velocities` and `command_error`
+- leader joint positions and leader button states
+- phase code for sync interpolation vs synchronized tele-op
+- loop timing, loop lag, and follower read latency
+- motor temperatures when exposed by the follower server
+- metadata for effort source, units, command source, target rate, and actual rate
+
+Before collecting a long NEXT run, audit the effort-unit provenance:
+
+```bash
+python examples/yam/audit_yam_effort_units.py \
+  --arm yam \
+  --gripper linear_4310 \
+  --output-path ./yam_next_data_logs/effort_unit_audit_left_follower.json
+```
+
+This is a no-motion software audit. It verifies which DM motor types, torque
+decode ranges, and direction signs i2rt uses for `joint_efforts`. For the
+standard YAM + linear 4310 follower, joints 0-2 decode as DM4340 feedback
+torque over +/-28 Nm and joints 3-6 decode as DM4310 feedback torque over
++/-10 Nm. That makes `joint_efforts` nominal motor torque in Nm, not raw ADC
+current.
+
+That audit does not prove absolute physical calibration. To strengthen the
+signal before glass work:
+
+- Static gravity sanity: hold several safe, contact-free poses for 10-20 s
+  each, then compare measured `joint_efforts` against the MuJoCo/i2rt gravity
+  torque at the same `q`. Signs and approximate scale should agree; residual
+  bias captures friction, payload, and model error that NEXT should learn.
+- Known-load check: apply a small known force with a force gauge or known
+  hanging weight at a known end-effector offset, then compare the change in
+  residual torque with `J(q)^T F`. This is the proper absolute calibration
+  check for whether a displayed residual corresponds to real external load.
+- NEXT training itself does not require perfect absolute Nm calibration as long
+  as training and deployment use the same effort signal. Absolute calibration
+  matters when choosing physical thresholds for glass handling or reporting
+  force in real units.
 
 ## NEXT-lite training
 
@@ -249,7 +387,7 @@ Train a learned free-space effort predictor from contact-free baseline logs:
 
 ```bash
 python examples/yam/train_next_lite.py \
-  --input_glob "./yam_force_baselines/*/free_space_baseline.h5,./yam_teleop_force_logs/*/teleop_force_log.h5" \
+  --input_glob "./yam_force_baselines/*/free_space_baseline.h5,./yam_next_data_logs/*/gello_next_log.h5,./yam_teleop_force_logs/*/teleop_force_log.h5" \
   --output_dir ./yam_next_lite_runs \
   --history 50 \
   --epochs 50
